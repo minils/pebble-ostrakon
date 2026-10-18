@@ -46,7 +46,7 @@ static int16_t get_cell_height(MenuLayer *menu_layer, MenuIndex *cell_index,
       list->callbacks.get_count(list->context) > 0) {
     return list->callbacks.cell_height;
   }
-  return MENU_CELL_BASIC_CELL_HEIGHT;
+  return 44; // the MenuLayer default
 }
 
 static void select_long_click(MenuLayer *menu_layer, MenuIndex *cell_index,
