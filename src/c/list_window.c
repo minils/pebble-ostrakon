@@ -1,6 +1,14 @@
 #include "list_window.h"
 #include "ui.h"
 
+// The system default of 44px leaves the title and subtitle of a row
+// cramped on larger displays; elsewhere the default is kept.
+#if PBL_DISPLAY_WIDTH >= 200
+#define DEFAULT_CELL_HEIGHT 56
+#else
+#define DEFAULT_CELL_HEIGHT 0
+#endif
+
 struct ListWindow {
   Window *window;
   MenuLayer *menu_layer;
@@ -42,7 +50,8 @@ static void draw_row(GContext *ctx, const Layer *cell_layer,
 static int16_t get_cell_height(MenuLayer *menu_layer, MenuIndex *cell_index,
                                void *data) {
   ListWindow *list = data;
-  return list->callbacks.cell_height;
+  return list->callbacks.cell_height > 0 ? list->callbacks.cell_height
+                                         : DEFAULT_CELL_HEIGHT;
 }
 
 static void select_long_click(MenuLayer *menu_layer, MenuIndex *cell_index,
@@ -75,11 +84,11 @@ static void window_load(Window *window) {
                            (MenuLayerCallbacks){
                                .get_num_rows = get_num_rows,
                                .draw_row = draw_row,
-                               // without a custom height the system default
-                               // fits the platform best
-                               .get_cell_height = list->callbacks.cell_height > 0
-                                                      ? get_cell_height
-                                                      : NULL,
+                               .get_cell_height =
+                                   (list->callbacks.cell_height > 0 ||
+                                    DEFAULT_CELL_HEIGHT > 0)
+                                       ? get_cell_height
+                                       : NULL,
                                .select_click = select_click,
                                .select_long_click = select_long_click,
                            });
