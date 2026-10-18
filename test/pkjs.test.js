@@ -20,6 +20,13 @@ memos.push({ name: 'memos/md1', tags: ['idea'], createTime: '2026-10-01T09:00:00
 memos.push({ name: 'memos/c1', content: 'a comment', parent: 'memos/m1', tags: [], state: 'NORMAL' });
 memos.push({ name: 'memos/c2', content: 'second **reply**', parent: 'memos/m3', tags: [], createTime: '2026-10-17T10:00:00Z', state: 'NORMAL' });
 memos.push({ name: 'memos/c3', content: 'first reply', parent: 'memos/m3', tags: [], createTime: '2026-10-16T10:00:00Z', state: 'NORMAL' });
+memos.forEach(x => { if (!x.parent) x.relations = []; });
+memos.find(x => x.name === 'memos/m3').relations = [
+  { memo: { name: 'memos/c2' }, relatedMemo: { name: 'memos/m3' }, type: 'COMMENT' },
+  { memo: { name: 'memos/c3' }, relatedMemo: { name: 'memos/m3' }, type: 'COMMENT' }];
+// a reference from m4 to m3 is not a comment of m4
+memos.find(x => x.name === 'memos/m4').relations = [
+  { memo: { name: 'memos/m4' }, relatedMemo: { name: 'memos/m3' }, type: 'REFERENCE' }];
 memos.find(x => x.name === 'memos/m5').pinned = true;
 memos.find(x => x.name === 'memos/m7').pinned = true;
 memos.push({ name: 'memos/u1', content: 'Ünïcödé 😀 ' + 'x'.repeat(2000), tags: ['work/sub'], createTime: '2026-10-18T08:00:00Z', state: 'NORMAL' });
@@ -324,11 +331,21 @@ setTimeout(() => { console.error('Test timed out'); process.exit(1); }, 30000).u
   r = await request(12, null, '  ');
   assert.deepStrictEqual([r[0].STATUS, r[0].TEXT], [1, 'Nothing to search']);
 
-  // comments are shown below the memo, oldest first
+  // whether a memo has comments comes with the lists and the memo
+  r = await request(2, null, null, 0);
+  const flagOf = name => r.slice(1).find(m => m.ITEM_ID === name).ITEM_FLAGS;
+  assert.deepStrictEqual([flagOf('memos/m3'), flagOf('memos/m4'), flagOf('memos/m6')], [2, 0, 0]);
   r = await request(5, 'memos/m3');
+  assert.deepStrictEqual([r[0].TEXT, r[0].ITEM_FLAGS], ['1Title 3\npbody #work', 2]);
+  r = await request(5, 'memos/m4');
+  assert.strictEqual(r[0].ITEM_FLAGS, 0);
+
+  // comments are listed separately, oldest first
+  r = await request(15, 'memos/m3');
   assert.deepStrictEqual(r[0].TEXT.split('\n'), [
-    '1Title 3', 'pbody #work', '-', '2Comments',
-    'mOct 16, 10:00', 'pfirst reply', 'mOct 17, 10:00', 'psecond reply']);
+    'mOct 16, 10:00', 'pfirst reply', '-', 'mOct 17, 10:00', 'psecond reply']);
+  r = await request(15, 'memos/m4');
+  assert.strictEqual(r[0].TEXT, 'pNo comments yet');
 
   // append: new lines go above the trailing tags
   r = await request(11, 'memos/new1', 'check box eggs');

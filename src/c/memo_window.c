@@ -12,6 +12,7 @@ static MemoView *s_memo_view;
 static char s_name[COMM_ID_SIZE];
 static char s_content[COMM_TEXT_SIZE];
 static bool s_loading;
+static bool s_has_comments;
 
 static void show_message(const char *message) {
   ui_copy_truncated(s_content, message, sizeof(s_content));
@@ -32,6 +33,8 @@ static void content_handler(DictionaryIterator *iter, void *context) {
     show_message(comm_response_error(iter));
   } else {
     comm_copy_string(iter, MESSAGE_KEY_TEXT, s_content, sizeof(s_content));
+    s_has_comments = comm_get_int(iter, MESSAGE_KEY_ITEM_FLAGS, 0) &
+                     MEMO_FLAG_HAS_COMMENTS;
     memo_view_set_lines(s_memo_view, s_content);
   }
 }
@@ -40,7 +43,7 @@ static void select_click_handler(ClickRecognizerRef ref, void *context) {
   if (s_loading) {
     return;
   }
-  memo_actions_open(s_name, false);
+  memo_actions_open(s_name, false, s_has_comments);
 }
 
 static void click_config_provider(void *context) {
@@ -95,6 +98,7 @@ void memo_window_push(const char *memo_name) {
     return;
   }
   ui_copy_truncated(s_name, memo_name, sizeof(s_name));
+  s_has_comments = false;
 
   s_window = window_create();
   window_set_window_handlers(s_window, (WindowHandlers){

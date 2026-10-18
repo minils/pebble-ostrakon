@@ -15,6 +15,8 @@ struct ListWindow {
   ListWindowCallbacks callbacks;
   void *context;
   char status[64];
+  char title[64];
+  Layer *title_bar;
   // while loading, an empty list shows animated dots instead of rows and
   // a filled list gets an extra row with the dots
   bool loading;
@@ -94,8 +96,16 @@ static void select_click(MenuLayer *menu_layer, MenuIndex *cell_index,
 static void window_load(Window *window) {
   ListWindow *list = window_get_user_data(window);
   Layer *root = window_get_root_layer(window);
+  GRect bounds = layer_get_bounds(root);
 
-  list->menu_layer = menu_layer_create(layer_get_bounds(root));
+  // an optional title bar sits above the rows
+  GRect menu_frame = bounds;
+  if (list->title[0]) {
+    menu_frame.origin.y = UI_TITLE_BAR_HEIGHT;
+    menu_frame.size.h -= UI_TITLE_BAR_HEIGHT;
+  }
+
+  list->menu_layer = menu_layer_create(menu_frame);
   menu_layer_set_callbacks(list->menu_layer, list,
                            (MenuLayerCallbacks){
                                .get_num_rows = get_num_rows,
@@ -113,8 +123,13 @@ static void window_load(Window *window) {
   menu_layer_set_click_config_onto_window(list->menu_layer, window);
   layer_add_child(root, menu_layer_get_layer(list->menu_layer));
 
-  list->loading_layer = ui_loading_layer_create(layer_get_bounds(root));
+  list->loading_layer = ui_loading_layer_create(menu_frame);
   layer_add_child(root, list->loading_layer);
+
+  if (list->title[0]) {
+    list->title_bar = ui_title_bar_create(bounds, list->title);
+    layer_add_child(root, list->title_bar);
+  }
   ui_loading_layer_set_active(list->loading_layer,
                               list->loading &&
                                   list->callbacks.get_count(list->context) == 0);
@@ -136,6 +151,10 @@ static void window_unload(Window *window) {
   }
   ui_loading_layer_destroy(list->loading_layer);
   menu_layer_destroy(list->menu_layer);
+  if (list->title_bar) {
+    layer_destroy(list->title_bar);
+    list->title_bar = NULL;
+  }
   // the unload callback may still end a request and update the loading
   // state, which must not touch the destroyed layers
   list->loading_layer = NULL;
@@ -204,6 +223,10 @@ void list_window_set_loading(ListWindow *list, bool loading) {
     list->loading_timer = NULL;
   }
   list_window_reload(list);
+}
+
+void list_window_set_title(ListWindow *list, const char *title) {
+  ui_copy_truncated(list->title, title, sizeof(list->title));
 }
 
 void list_window_set_status(ListWindow *list, const char *status) {

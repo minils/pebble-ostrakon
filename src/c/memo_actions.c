@@ -1,6 +1,7 @@
 #include "memo_actions.h"
 #include "actions.h"
 #include "comm.h"
+#include "comments_window.h"
 #include "compose_window.h"
 #include "memo_list.h"
 #include "memo_window.h"
@@ -11,6 +12,7 @@
 enum {
   MemoActionOpen = 1,
   MemoActionTasks,
+  MemoActionComments,
   MemoActionAppend,
   MemoActionComment,
   MemoActionPin,
@@ -71,6 +73,9 @@ static void action_chosen(int id, void *context) {
   case MemoActionTasks:
     tasks_window_push(s_name);
     break;
+  case MemoActionComments:
+    comments_window_push(s_name);
+    break;
   case MemoActionArchive:
     s_pending_action = id;
     modify(CommActionArchive);
@@ -93,22 +98,27 @@ static void action_chosen(int id, void *context) {
   }
 }
 
-void memo_actions_open(const char *memo_name, bool include_open) {
-  static const ActionItem items[] = {
-      {.label = "Open", .id = MemoActionOpen},
-      {.label = "Tasks", .id = MemoActionTasks},
-      {.label = "Append", .id = MemoActionAppend},
-      {.label = "Comment", .id = MemoActionComment},
-      {.label = "Pin / Unpin", .id = MemoActionPin},
-      {.label = "Archive", .id = MemoActionArchive},
-      {.label = "Delete", .id = MemoActionDelete,
-       .confirm_label = "Yes, delete"},
-  };
+void memo_actions_open(const char *memo_name, bool include_open,
+                       bool has_comments) {
+  // labels are literals, so the items only need to live during this call
+  ActionItem items[ACTIONS_MAX_ITEMS];
+  int count = 0;
+  if (include_open) {
+    items[count++] = (ActionItem){.label = "Open", .id = MemoActionOpen};
+  }
+  items[count++] = (ActionItem){.label = "Tasks", .id = MemoActionTasks};
+  if (has_comments) {
+    items[count++] =
+        (ActionItem){.label = "Comments", .id = MemoActionComments};
+  }
+  items[count++] = (ActionItem){.label = "Append", .id = MemoActionAppend};
+  items[count++] = (ActionItem){.label = "Comment", .id = MemoActionComment};
+  items[count++] = (ActionItem){.label = "Pin / Unpin", .id = MemoActionPin};
+  items[count++] = (ActionItem){.label = "Archive", .id = MemoActionArchive};
+  items[count++] = (ActionItem){.label = "Delete",
+                                .id = MemoActionDelete,
+                                .confirm_label = "Yes, delete"};
 
   ui_copy_truncated(s_name, memo_name, sizeof(s_name));
-  if (include_open) {
-    actions_open(items, ARRAY_LENGTH(items), action_chosen, NULL);
-  } else {
-    actions_open(items + 1, ARRAY_LENGTH(items) - 1, action_chosen, NULL);
-  }
+  actions_open(items, count, action_chosen, NULL);
 }

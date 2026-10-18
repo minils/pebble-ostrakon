@@ -19,7 +19,8 @@ static void select_row(uint16_t index, void *context) {
   }
   // an action replaces the pending request, so stop loading for good
   remote_list_cancel(&s_list);
-  memo_actions_open(s_items[index].id, true);
+  memo_actions_open(s_items[index].id, true,
+                    s_items[index].flags & MEMO_FLAG_HAS_COMMENTS);
 }
 
 static void unload(void *context) {
@@ -28,7 +29,7 @@ static void unload(void *context) {
 }
 
 static void push(CommAction action, const char *target, const char *text,
-                 const char *empty_text) {
+                 const char *empty_text, const char *title) {
   if (s_list.window) {
     return;
   }
@@ -41,24 +42,30 @@ static void push(CommAction action, const char *target, const char *text,
           .unload = unload,
       },
       &s_list);
+  if (title) {
+    list_window_set_title(s_list.window, title);
+  }
   list_window_push(s_list.window);
   remote_list_load(&s_list, action, target, text);
 }
 
 void memo_list_push_recent(void) {
-  push(CommActionListRecent, NULL, NULL, "No memos");
+  push(CommActionListRecent, NULL, NULL, "No memos", NULL);
 }
 
 void memo_list_push_tag(const char *tag) {
-  push(CommActionListByTag, tag, NULL, "No memos");
+  push(CommActionListByTag, tag, NULL, "No memos", NULL);
 }
 
 void memo_list_push_search(const char *query) {
-  push(CommActionSearch, NULL, query, "No matches");
+  // the title bar shows what was searched for
+  char title[COMM_TITLE_SIZE + 4];
+  snprintf(title, sizeof(title), "\"%s\"", query);
+  push(CommActionSearch, NULL, query, "No matches", title);
 }
 
 void memo_list_push_pinned(void) {
-  push(CommActionListPinned, NULL, NULL, "No pinned memos");
+  push(CommActionListPinned, NULL, NULL, "No pinned memos", NULL);
 }
 
 void memo_list_remove(const char *memo_name) {

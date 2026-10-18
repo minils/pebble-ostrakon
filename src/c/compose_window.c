@@ -1,6 +1,7 @@
 #include "compose_window.h"
 #include "actions.h"
 #include "comm.h"
+#include "comments_window.h"
 #include "drafts.h"
 #include "memo_window.h"
 #include "text_view.h"
@@ -145,6 +146,7 @@ static void send_handler(DictionaryIterator *iter, void *context) {
   // the open memo shows the new comment or appended text after a reload
   if (s_mode != ComposeModeMemo) {
     memo_window_reload(s_target);
+    comments_window_reload(s_target);
   }
   // e.g. "Offline: memo queued" when the phone sends it later
   if (dict_find(iter, MESSAGE_KEY_TEXT)) {

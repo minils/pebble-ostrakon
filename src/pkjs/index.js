@@ -21,6 +21,10 @@ var ACTION_APPEND        = 11;
 var ACTION_SEARCH        = 12;
 var ACTION_LIST_PINNED   = 13;
 var ACTION_TOGGLE_PIN    = 14;
+var ACTION_LIST_COMMENTS = 15;
+
+/* ---------- FLAGS OF MEMO LIST ITEMS (MUST MATCH memo_list.c) ---------- */
+var FLAG_HAS_COMMENTS = 2;
 
 /* ---------- LIMITS (MUST FIT THE BUFFERS IN comm.h) ---------- */
 var MAX_ID_BYTES       = 47;
@@ -155,6 +159,21 @@ function memoTitle(memo) {
     if (line !== "") return truncateUtf8(line, MAX_TITLE_BYTES);
   }
   return "(empty)";
+}
+
+function relationName(value) {
+  return typeof value === "string" ? value : value && value.name;
+}
+
+// Whether a memo has comments, from the relations the server lists with
+// it. Without relations (older servers) this is unknown, so true.
+function hasComments(memo) {
+  if (typeof memo.hasComments === "boolean") return memo.hasComments;
+  if (!memo.relations) return true;
+  return memo.relations.some(function (relation) {
+    return relation.type === "COMMENT" &&
+      relationName(relation.relatedMemo) === memo.name;
+  });
 }
 
 function memoSubtitle(memo) {
@@ -317,7 +336,8 @@ function slimMemo(memo) {
     displayTime: memo.displayTime || memo.createTime,
     parent: memo.parent,
     state: memo.state || memo.rowStatus,
-    pinned: !!memo.pinned
+    pinned: !!memo.pinned,
+    hasComments: hasComments(memo)
   };
 }
 
@@ -548,7 +568,12 @@ function fetchMemos(accept, limit, callback) {
 
 function memoItems(memos) {
   return memos.map(function (memo) {
-    return { id: memo.name, title: memoTitle(memo), subtitle: memoSubtitle(memo) };
+    return {
+      id: memo.name,
+      title: memoTitle(memo),
+      subtitle: memoSubtitle(memo),
+      flags: hasComments(memo) ? FLAG_HAS_COMMENTS : 0
+    };
   });
 }
 
@@ -743,11 +768,13 @@ function handleListTags(req) {
     });
 }
 
+// Comments oldest first, each with its date, separated by rules
 function commentLines(comments) {
-  var lines = ["-", "2Comments"];
+  var lines = [];
   comments.slice().sort(function (a, b) {
     return memoTime(a) - memoTime(b);
-  }).forEach(function (comment) {
+  }).forEach(function (comment, index) {
+    if (index > 0) lines.push("-");
     lines.push("m" + formatDate(comment.displayTime || comment.createTime));
     lines = lines.concat(markdownLines(comment.content || ""));
   });
@@ -755,33 +782,31 @@ function commentLines(comments) {
 }
 
 function handleGet(req) {
-  // memo and comments are loaded at the same time
-  var memoResult = null;
-  var comments = null;
-
-  function done() {
-    if (!memoResult || comments === null) return;
-    var err = memoResult.err;
-    var memo = memoResult.memo;
-    if (err) {
-      // comments are not cached, so offline only the memo is shown
-      memo = isOfflineError(err) ? findInCache(req.target) : null;
-      if (memo) replyOk(req, { "TEXT": markdownToLines(memo.content || "") });
-      else replyError(req, err);
+  apiRequest("GET", req.target, null, function (err, memo) {
+    if (err && isOfflineError(err)) memo = findInCache(req.target);
+    if (!memo) {
+      replyError(req, err || "Memo not found");
       return;
     }
-    var lines = markdownLines(memo.content || "");
-    if (comments.length > 0) lines = lines.concat(commentLines(comments));
-    replyOk(req, { "TEXT": joinLines(lines) });
-  }
-
-  apiRequest("GET", req.target, null, function (err, memo) {
-    memoResult = { err: err, memo: memo };
-    done();
+    // the flag decides whether the watch offers "Comments"
+    replyOk(req, {
+      "TEXT": markdownToLines(memo.content || ""),
+      "ITEM_FLAGS": hasComments(memo) ? FLAG_HAS_COMMENTS : 0
+    });
   });
+}
+
+function handleListComments(req) {
   apiRequest("GET", req.target + "/comments", null, function (err, data) {
-    comments = (!err && data.memos) || [];
-    done();
+    if (err) {
+      replyError(req, err);
+      return;
+    }
+    var comments = data.memos || [];
+    replyOk(req, {
+      "TEXT": comments.length > 0 ? joinLines(commentLines(comments))
+                                  : "pNo comments yet"
+    });
   });
 }
 
@@ -949,6 +974,7 @@ HANDLERS[ACTION_APPEND]      = handleAppend;
 HANDLERS[ACTION_SEARCH]      = handleSearch;
 HANDLERS[ACTION_LIST_PINNED] = handleListPinned;
 HANDLERS[ACTION_TOGGLE_PIN]  = handleTogglePin;
+HANDLERS[ACTION_LIST_COMMENTS] = handleListComments;
 
 /* =========================================================
  * AppMessage handler

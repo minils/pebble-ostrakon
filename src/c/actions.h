@@ -1,7 +1,7 @@
 #pragma once
 #include <pebble.h>
 
-#define ACTIONS_MAX_ITEMS 8
+#define ACTIONS_MAX_ITEMS 9
 
 typedef struct {
   const char *label;

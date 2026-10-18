@@ -24,7 +24,11 @@ typedef enum {
   CommActionSearch = 12,
   CommActionListPinned = 13,
   CommActionTogglePin = 14,
+  CommActionListComments = 15,
 } CommAction;
+
+/* ---------- Flags of memo list items (must match index.js) ---------- */
+#define MEMO_FLAG_HAS_COMMENTS 2
 
 // Called for every response message of the current request. iter is NULL
 // if the phone could not be reached or did not answer in time.
