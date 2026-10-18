@@ -38,7 +38,7 @@ static void window_unload(Window *window) {
   }
 }
 
-void toast_show(const char *text, bool success) {
+static void show(const char *text) {
   ui_copy_truncated(s_text, text, sizeof(s_text));
 
   if (s_window) {
@@ -52,15 +52,16 @@ void toast_show(const char *text, bool success) {
     window_stack_push(s_window, true);
   }
 
-  if (success) {
-    vibes_short_pulse();
-  } else {
-    vibes_double_pulse();
-  }
-
   if (s_timer) {
     app_timer_reschedule(s_timer, TOAST_DURATION_MS);
   } else {
     s_timer = app_timer_register(TOAST_DURATION_MS, timer_callback, NULL);
   }
 }
+
+void toast_show(const char *text, bool success) {
+  show(text);
+  ui_vibrate(success);
+}
+
+void toast_show_quiet(const char *text) { show(text); }

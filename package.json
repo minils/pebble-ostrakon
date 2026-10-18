@@ -34,7 +34,8 @@
       "ITEM_INDEX",
       "ITEM_TITLE",
       "ITEM_SUBTITLE",
-      "LIST_COUNT"
+      "LIST_COUNT",
+      "VIBRATE"
     ],
     "resources": {
       "media": [{

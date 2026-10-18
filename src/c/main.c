@@ -5,6 +5,7 @@
 #include "drafts_window.h"
 #include "list_window.h"
 #include "memo_list.h"
+#include "settings.h"
 #include "tag_list.h"
 
 enum {
@@ -77,6 +78,7 @@ static void appear(void *context) {
 /* =================================================================== */
 
 static void init(void) {
+  settings_init();
   comm_init();
   drafts_init();
 

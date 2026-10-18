@@ -12,10 +12,16 @@ for (let i = 1; i <= 60; i++) {
     tags: i % 3 === 0 ? ['work'] : ['home'], createTime: '2026-10-1' + (i % 9) + 'T12:0' + (i % 6) + ':00Z', state: 'NORMAL' });
 }
 memos.push({ name: 'memos/p1', content: 'project note', tags: ['proj/a'], createTime: '2026-10-18T09:00:00Z', state: 'NORMAL' });
+memos.push({ name: 'memos/md1', tags: ['idea'], createTime: '2026-10-01T09:00:00Z', state: 'NORMAL', content: [
+  '# Big title', '', '## Sub *title*', 'Some **bold** and `code` with [a link](http://x.y).',
+  '- [ ] open task', '- [x] done task', '* bullet', '1. first', '> quoted', '---',
+  '```', 'let x = 1;', '```', '![pic](http://img)', '#idea #pebble'].join('\n') });
 memos.push({ name: 'memos/c1', content: 'a comment', parent: 'memos/m1', tags: [], state: 'NORMAL' });
 memos.push({ name: 'memos/u1', content: 'Ünïcödé 😀 ' + 'x'.repeat(2000), tags: ['work/sub'], createTime: '2026-10-18T08:00:00Z', state: 'NORMAL' });
 const created = [], comments = [];
+let serverDown = false;
 const server = http.createServer((req, res) => {
+  if (serverDown) return req.socket.destroy();
   let body = '';
   req.on('data', c => body += c);
   req.on('end', () => {
@@ -29,7 +35,12 @@ const server = http.createServer((req, res) => {
       const page = visible.slice(start, start + size);
       return send(200, { memos: page, nextPageToken: start + size < visible.length ? String(start + size) : '' });
     }
-    if (req.method === 'POST' && u.pathname === '/api/v1/memos') { created.push(JSON.parse(body)); return send(200, {}); }
+    if (req.method === 'POST' && u.pathname === '/api/v1/memos') {
+      created.push(JSON.parse(body));
+      const memo = { name: 'memos/new' + created.length, content: JSON.parse(body).content, createTime: '2026-10-18T10:00:00Z', state: 'NORMAL' };
+      memos.unshift(memo);
+      return send(200, memo);
+    }
     if ((m = u.pathname.match(/^\/api\/v1\/(memos\/[\w]+)\/comments$/)) && req.method === 'POST') { comments.push([m[1], JSON.parse(body)]); return send(200, {}); }
     if ((m = u.pathname.match(/^\/api\/v1\/(memos\/[\w]+)$/))) {
       const memo = memos.find(x => x.name === m[1]);
@@ -130,8 +141,15 @@ setTimeout(() => { console.error('Test timed out'); process.exit(1); }, 30000).u
   // get: utf-8 safe truncation to 1500 bytes
   r = await request(5, 'memos/u1');
   assert.strictEqual(r[0].STATUS, 0);
-  assert.ok(bytes(r[0].TEXT) <= 1500 && r[0].TEXT.startsWith('Ünïcödé 😀'));
+  assert.ok(bytes(r[0].TEXT) <= 1500 && r[0].TEXT.startsWith('pÜnïcödé 😀'));
   assert.ok(!/�/.test(Buffer.from(r[0].TEXT).toString()));
+
+  // markdown is converted into typed lines for the watch
+  r = await request(5, 'memos/md1');
+  assert.deepStrictEqual(r[0].TEXT.split('\n'), [
+    '1Big title', '2Sub title', 'pSome bold and code with a link.',
+    'copen task', 'xdone task', 'bbullet', 'n1. first', 'qquoted', '-',
+    'klet x = 1;', 'p[pic]', 't#idea #pebble']);
 
   // create with keywords and tags; empty memos are rejected
   r = await request(1, null, 'title big shopping new line check box milk hashtag Food');
@@ -159,6 +177,30 @@ setTimeout(() => { console.error('Test timed out'); process.exit(1); }, 30000).u
   r = await request(7, 'memos/nope');
   assert.deepStrictEqual([r[0].STATUS, r[0].TEXT], [1, 'Server error 404']);
 
+  // without a connection lists and memos come from the cache
+  serverDown = true;
+  r = await request(2);
+  assert.strictEqual(r[0].STATUS, 0);
+  assert.strictEqual(r[0].TEXT, 'Offline: cached memos');
+  assert.strictEqual(r[0].LIST_COUNT, 20);
+  assert.ok(!r.slice(1).some(m => m.ITEM_ID === 'memos/m1' || m.ITEM_ID === 'memos/m2'));
+  r = await request(4, 'idea');
+  assert.deepStrictEqual(r.slice(1).map(m => m.ITEM_ID), ['memos/md1']);
+  r = await request(3);
+  assert.strictEqual(r[0].TEXT, 'Offline: cached memos');
+  r = await request(5, 'memos/md1');
+  assert.ok(r[0].TEXT.startsWith('1Big title'));
+  r = await request(5, 'memos/new1'); // created memos are cached, too
+  assert.ok(r[0].TEXT.startsWith('1shopping'));
+  r = await request(5, 'memos/unknown');
+  assert.deepStrictEqual([r[0].STATUS, r[0].TEXT], [1, 'Network error']);
+  r = await request(6, 'memos/m3');
+  assert.deepStrictEqual([r[0].STATUS, r[0].TEXT], [1, 'Network error']);
+  localStorage.setItem('memos_cache', '[]');
+  r = await request(2);
+  assert.deepStrictEqual([r[0].STATUS, r[0].TEXT], [1, 'Network error']);
+  serverDown = false;
+
   // a NACK is retried and nothing is lost
   nackNext = true;
   r = await request(2);
@@ -168,6 +210,14 @@ setTimeout(() => { console.error('Test timed out'); process.exit(1); }, 30000).u
   store.memos_settings = JSON.stringify({ url: `http://127.0.0.1:${port}/`, token: 'bad' });
   r = await request(2);
   assert.deepStrictEqual([r[0].STATUS, r[0].TEXT], [1, 'Server error 401']);
+
+  // the vibration setting is pushed to the watch on start and on change;
+  // it defaults to on for settings saved before the option existed
+  const before = received.length;
+  listeners.ready({});
+  listeners.webviewclosed({ response: encodeURIComponent(JSON.stringify({ url: 'x', token: 'y', vibrate: false })) });
+  await new Promise(res => setTimeout(res, 50));
+  assert.deepStrictEqual(received.slice(before), [{ VIBRATE: 1 }, { VIBRATE: 0 }]);
 
   console.log('ALL OK');
   server.close();

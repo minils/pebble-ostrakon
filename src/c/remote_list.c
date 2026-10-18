@@ -1,4 +1,5 @@
 #include "remote_list.h"
+#include "toast.h"
 
 static void finish(RemoteList *list) {
   comm_finish();
@@ -22,6 +23,10 @@ static void response_handler(DictionaryIterator *iter, void *context) {
   // the first message announces the number of items
   int32_t count = comm_get_int(iter, MESSAGE_KEY_LIST_COUNT, -1);
   if (count >= 0) {
+    // the phone adds a note if the list comes from its offline cache
+    if (dict_find(iter, MESSAGE_KEY_TEXT)) {
+      toast_show_quiet(comm_response_error(iter));
+    }
     list->expected = count < list->capacity ? count : list->capacity;
     if (list->expected == 0) {
       finish(list);

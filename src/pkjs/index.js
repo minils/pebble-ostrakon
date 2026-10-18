@@ -24,6 +24,10 @@ var MAX_TEXT_BYTES     = 1500;
 var MAX_LIST_ITEMS     = 20;
 var MAX_TAG_ITEMS      = 30;
 
+var CACHE_KEY          = "memos_cache";
+var MAX_CACHED_MEMOS   = 200;
+var MAX_CACHED_CONTENT = 4000;
+
 var PAGE_SIZE   = 50;
 var MAX_PAGES   = 4;
 var TIMEOUT_MS  = 15000;
@@ -145,6 +149,126 @@ function memoSubtitle(memo) {
 }
 
 /* =========================================================
+ * Markdown for the watch
+ * ========================================================= */
+
+// Removes inline markup the watch cannot show
+function inlineMarkdown(text) {
+  return text
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, function (m, alt) {
+      return "[" + (alt || "image") + "]";
+    })
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/(\*\*|__)(.+?)\1/g, "$2")
+    .replace(/~~(.+?)~~/g, "$1")
+    .replace(/(^|[\s(])[*_]([^*_\s][^*_]*?)[*_](?=[\s).,!?:;]|$)/g, "$1$2");
+}
+
+// Converts markdown into lines of "<type><text>" that the watch renders
+// (see memo_view.c): 1/2 heading, p paragraph, b bullet, n numbered,
+// c open task, x done task, q quote, t tags, k code, - rule
+function markdownToLines(content) {
+  var lines = [];
+  var inCode = false;
+
+  content.split("\n").forEach(function (raw) {
+    var line = raw.replace(/\s+$/, "");
+    var m;
+    if (/^\s*```/.test(line)) {
+      inCode = !inCode;
+    } else if (inCode) {
+      lines.push("k" + line);
+    } else if (line.trim() === "") {
+      // blank lines only separate blocks
+    } else if (/^\s*([-*_])(\s*\1){2,}$/.test(line)) {
+      lines.push("-");
+    } else if ((m = line.match(/^\s*(#{1,6})\s+(.*)$/))) {
+      lines.push((m[1].length === 1 ? "1" : "2") + inlineMarkdown(m[2]));
+    } else if ((m = line.match(/^\s*[-*+]\s+\[([ xX])\]\s*(.*)$/))) {
+      lines.push((m[1] === " " ? "c" : "x") + inlineMarkdown(m[2]));
+    } else if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) {
+      lines.push("b" + inlineMarkdown(m[1]));
+    } else if ((m = line.match(/^\s*(\d+[.)])\s+(.*)$/))) {
+      lines.push("n" + m[1] + " " + inlineMarkdown(m[2]));
+    } else if ((m = line.match(/^\s*>\s?(.*)$/))) {
+      lines.push("q" + inlineMarkdown(m[1]));
+    } else if (/^(\s*#[^\s#]+)+$/.test(line)) {
+      lines.push("t" + line.trim());
+    } else {
+      lines.push("p" + inlineMarkdown(line.trim()));
+    }
+  });
+
+  if (lines.length === 0) lines.push("p(empty)");
+  return truncateUtf8(lines.join("\n"), MAX_TEXT_BYTES);
+}
+
+/* =========================================================
+ * Offline cache of recently fetched memos
+ * ========================================================= */
+
+function memoTime(memo) {
+  return Date.parse(memo.displayTime || memo.createTime || "") || 0;
+}
+
+function loadCache() {
+  try {
+    return JSON.parse(localStorage.getItem(CACHE_KEY)) || [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function saveCache(memos) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(memos.slice(0, MAX_CACHED_MEMOS)));
+  } catch (err) {
+    console.log("Memos: Could not save cache", err);
+  }
+}
+
+function slimMemo(memo) {
+  return {
+    name: memo.name,
+    content: (memo.content || "").substring(0, MAX_CACHED_CONTENT),
+    tags: memoTags(memo),
+    displayTime: memo.displayTime || memo.createTime,
+    parent: memo.parent,
+    state: memo.state || memo.rowStatus
+  };
+}
+
+// The fetched memos are the newest ones, so they replace the cached memos
+// of the same time range; older cached memos are kept unless the server
+// returned everything.
+function updateCache(fetched, complete) {
+  var names = {};
+  fetched.forEach(function (memo) { names[memo.name] = true; });
+  var oldest = fetched.length ? memoTime(fetched[fetched.length - 1]) : Infinity;
+  var older = complete ? [] : loadCache().filter(function (memo) {
+    return !names[memo.name] && memoTime(memo) < oldest;
+  });
+  saveCache(fetched.map(slimMemo).concat(older));
+}
+
+function removeFromCache(name) {
+  saveCache(loadCache().filter(function (memo) { return memo.name !== name; }));
+}
+
+function findInCache(name) {
+  var cached = loadCache();
+  for (var i = 0; i < cached.length; i++) {
+    if (cached[i].name === name) return cached[i];
+  }
+  return null;
+}
+
+function isOfflineError(err) {
+  return err === "Network error" || err === "Request timed out";
+}
+
+/* =========================================================
  * Outgoing message queue (one message in flight at a time)
  * ========================================================= */
 var outbox = [];
@@ -194,8 +318,10 @@ function replyError(req, message) {
   reply(req, { "STATUS": 1, "TEXT": truncateUtf8(message, MAX_TITLE_BYTES) });
 }
 
-function replyList(req, items) {
-  replyOk(req, { "LIST_COUNT": items.length });
+function replyList(req, items, offline) {
+  var head = { "LIST_COUNT": items.length };
+  if (offline) head["TEXT"] = "Offline: cached memos";
+  replyOk(req, head);
   for (var i = 0; i < items.length; i++) {
     reply(req, {
       "ITEM_INDEX": i,
@@ -248,9 +374,22 @@ function apiRequest(method, path, body, callback) {
   xhr.send(body ? JSON.stringify(body) : null);
 }
 
-// Collect memos page by page until `limit` memos pass `accept`
-function fetchMemos(accept, limit, callback) {
+function filterMemos(memos, accept, limit) {
   var result = [];
+  for (var i = 0; i < memos.length && result.length < limit; i++) {
+    var memo = memos[i];
+    // comments are memos with a parent, archived ones are not listed
+    if (memo.parent) continue;
+    if (memo.state === "ARCHIVED" || memo.rowStatus === "ARCHIVED") continue;
+    if (accept(memo)) result.push(memo);
+  }
+  return result;
+}
+
+// Collect memos page by page until `limit` memos pass `accept`. Without a
+// connection the cached memos are used; callback(err, memos, offline).
+function fetchMemos(accept, limit, callback) {
+  var fetched = [];
 
   function fetchPage(pageToken, pagesLeft) {
     var path = "memos?pageSize=" + PAGE_SIZE +
@@ -258,22 +397,22 @@ function fetchMemos(accept, limit, callback) {
 
     apiRequest("GET", path, null, function (err, data) {
       if (err) {
-        callback(err);
+        var cached = loadCache();
+        if (isOfflineError(err) && cached.length > 0) {
+          callback(null, filterMemos(cached, accept, limit), true);
+        } else {
+          callback(err);
+        }
         return;
       }
-      var memos = data.memos || [];
-      for (var i = 0; i < memos.length && result.length < limit; i++) {
-        var memo = memos[i];
-        // comments are memos with a parent, archived ones are not listed
-        if (memo.parent) continue;
-        if (memo.state === "ARCHIVED" || memo.rowStatus === "ARCHIVED") continue;
-        if (accept(memo)) result.push(memo);
-      }
 
+      fetched = fetched.concat(data.memos || []);
+      var result = filterMemos(fetched, accept, limit);
       if (result.length < limit && data.nextPageToken && pagesLeft > 1) {
         fetchPage(data.nextPageToken, pagesLeft - 1);
       } else {
-        callback(null, result);
+        updateCache(fetched, !data.nextPageToken);
+        callback(null, result, false);
       }
     });
   }
@@ -299,24 +438,30 @@ function handleCreate(req) {
     replyError(req, "Memo is empty");
     return;
   }
-  apiRequest("POST", "memos", { content: content }, function (err) {
-    if (err) replyError(req, err);
-    else replyOk(req);
+  apiRequest("POST", "memos", { content: content }, function (err, memo) {
+    if (err) {
+      replyError(req, err);
+      return;
+    }
+    // so the new memo can also be viewed offline
+    if (memo && memo.name) saveCache([slimMemo(memo)].concat(loadCache()));
+    replyOk(req);
   });
 }
 
 function handleListRecent(req) {
-  fetchMemos(function () { return true; }, MAX_LIST_ITEMS, function (err, memos) {
-    if (err) replyError(req, err);
-    else replyList(req, memoItems(memos));
-  });
+  fetchMemos(function () { return true; }, MAX_LIST_ITEMS,
+    function (err, memos, offline) {
+      if (err) replyError(req, err);
+      else replyList(req, memoItems(memos), offline);
+    });
 }
 
 function handleListByTag(req) {
   fetchMemos(function (memo) { return hasTag(memo, req.target); }, MAX_LIST_ITEMS,
-    function (err, memos) {
+    function (err, memos, offline) {
       if (err) replyError(req, err);
-      else replyList(req, memoItems(memos));
+      else replyList(req, memoItems(memos), offline);
     });
 }
 
@@ -324,7 +469,7 @@ function handleListTags(req) {
   // there is no stable tag endpoint across Memos versions, so count
   // the tags of the most recent memos instead
   fetchMemos(function () { return true; }, PAGE_SIZE * MAX_PAGES,
-    function (err, memos) {
+    function (err, memos, offline) {
       if (err) {
         replyError(req, err);
         return;
@@ -345,14 +490,15 @@ function handleListTags(req) {
           title: truncateUtf8("#" + tag, MAX_TITLE_BYTES),
           subtitle: counts[tag] + (counts[tag] === 1 ? " memo" : " memos")
         };
-      }));
+      }), offline);
     });
 }
 
 function handleGet(req) {
   apiRequest("GET", req.target, null, function (err, memo) {
-    if (err) replyError(req, err);
-    else replyOk(req, { "TEXT": truncateUtf8(memo.content || "", MAX_TEXT_BYTES) });
+    if (err && isOfflineError(err)) memo = findInCache(req.target);
+    if (memo) replyOk(req, { "TEXT": markdownToLines(memo.content || "") });
+    else replyError(req, err || "Memo not found");
   });
 }
 
@@ -360,22 +506,31 @@ function handleArchive(req) {
   apiRequest("PATCH", req.target + "?updateMask=state", { state: "ARCHIVED" },
     function (err) {
       if (!err) {
+        removeFromCache(req.target);
         replyOk(req);
         return;
       }
       // Memos versions before 0.22 call the field rowStatus
       apiRequest("PATCH", req.target + "?updateMask=row_status",
         { rowStatus: "ARCHIVED" }, function (legacyErr) {
-          if (legacyErr) replyError(req, err);
-          else replyOk(req);
+          if (legacyErr) {
+            replyError(req, err);
+            return;
+          }
+          removeFromCache(req.target);
+          replyOk(req);
         });
     });
 }
 
 function handleDelete(req) {
   apiRequest("DELETE", req.target, null, function (err) {
-    if (err) replyError(req, err);
-    else replyOk(req);
+    if (err) {
+      replyError(req, err);
+      return;
+    }
+    removeFromCache(req.target);
+    replyOk(req);
   });
 }
 
@@ -431,8 +586,15 @@ Pebble.addEventListener("appmessage", function (e) {
 /* =========================================================
  * Lifecycle
  * ========================================================= */
+// The watch keeps its own copy of settings it needs without the phone
+function sendWatchSettings() {
+  var settings = getSettings() || {};
+  enqueue({ "VIBRATE": settings.vibrate === false ? 0 : 1 });
+}
+
 Pebble.addEventListener("ready", function () {
   console.log("Memos: PebbleKit JS ready");
+  sendWatchSettings();
 });
 
 Pebble.addEventListener("showConfiguration", function() {
@@ -450,7 +612,8 @@ Pebble.addEventListener("webviewclosed", function(e) {
   try {
     var settings = JSON.parse(decodeURIComponent(e.response));
     localStorage.setItem("memos_settings", JSON.stringify(settings));
-    console.log("Memos: Settings saved", settings);
+    console.log("Memos: Settings saved");
+    sendWatchSettings();
   } catch (err) {
     console.log("Memos: Failed to parse settings", err);
   }

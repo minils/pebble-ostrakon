@@ -1,30 +1,32 @@
 #include "memo_window.h"
 #include "comm.h"
 #include "memo_actions.h"
-#include "text_view.h"
+#include "memo_view.h"
 #include "ui.h"
 
 static Window *s_window;
-static TextView s_text_view;
+static Layer *s_title_bar;
+static Layer *s_select_hint;
+static MemoView *s_memo_view;
 static char s_name[COMM_ID_SIZE];
 static char s_content[COMM_TEXT_SIZE];
 static bool s_loading;
 
-static void show(const char *text) {
-  ui_copy_truncated(s_content, text, sizeof(s_content));
-  text_view_set_text(&s_text_view, s_content);
+static void show_message(const char *message) {
+  ui_copy_truncated(s_content, message, sizeof(s_content));
+  memo_view_set_message(s_memo_view, s_content);
 }
 
 static void content_handler(DictionaryIterator *iter, void *context) {
   comm_finish();
   s_loading = false;
   if (!iter) {
-    show("No response from phone");
+    show_message("No response from phone");
   } else if (comm_response_failed(iter)) {
-    show(comm_response_error(iter));
+    show_message(comm_response_error(iter));
   } else {
     comm_copy_string(iter, MESSAGE_KEY_TEXT, s_content, sizeof(s_content));
-    text_view_set_text(&s_text_view, s_content);
+    memo_view_set_lines(s_memo_view, s_content);
   }
 }
 
@@ -40,12 +42,24 @@ static void click_config_provider(void *context) {
 }
 
 static void window_load(Window *window) {
-  text_view_create(&s_text_view, window, UI_BODY_FONT_KEY, GTextAlignmentLeft,
-                   click_config_provider);
-  show("Loading...");
+  Layer *root = window_get_root_layer(window);
+  GRect bounds = layer_get_bounds(root);
+
+  GRect view_frame = bounds;
+  view_frame.origin.y = UI_TITLE_BAR_HEIGHT;
+  view_frame.size.h -= UI_TITLE_BAR_HEIGHT;
+  s_memo_view = memo_view_create(root, view_frame, click_config_provider,
+                                 window);
+
+  s_title_bar = ui_title_bar_create(bounds, "Memo");
+  layer_add_child(root, s_title_bar);
+  s_select_hint = ui_select_hint_create(bounds);
+  layer_add_child(root, s_select_hint);
+
+  show_message("Loading...");
   s_loading = comm_request(CommActionGet, s_name, NULL, content_handler, NULL);
   if (!s_loading) {
-    show("Phone not connected");
+    show_message("Phone not connected");
   }
 }
 
@@ -55,7 +69,9 @@ static void window_unload(Window *window) {
     comm_finish();
     s_loading = false;
   }
-  text_view_destroy(&s_text_view);
+  layer_destroy(s_select_hint);
+  layer_destroy(s_title_bar);
+  memo_view_destroy(s_memo_view);
   window_destroy(s_window);
   s_window = NULL;
 }

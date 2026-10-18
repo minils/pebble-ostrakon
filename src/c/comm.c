@@ -1,4 +1,5 @@
 #include "comm.h"
+#include "settings.h"
 
 #define COMM_TIMEOUT_MS 20000
 
@@ -80,6 +81,12 @@ bool comm_request(CommAction action, const char *target, const char *text,
 /* =================================================================== */
 
 static void inbox_received_handler(DictionaryIterator *iter, void *context) {
+  // settings are pushed by the phone outside of any request
+  int32_t vibrate = comm_get_int(iter, MESSAGE_KEY_VIBRATE, -1);
+  if (vibrate >= 0) {
+    settings_set_vibrate(vibrate != 0);
+  }
+
   // responses to replaced requests are ignored
   if (!s_handler ||
       comm_get_int(iter, MESSAGE_KEY_REQUEST_ID, -1) != (int32_t)s_request_id) {

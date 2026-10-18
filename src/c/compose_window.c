@@ -208,8 +208,10 @@ static void click_config_provider(void *context) {
 /* =================================================================== */
 
 static void window_load(Window *window) {
-  text_view_create(&s_text_view, window, UI_COMPOSE_FONT_KEY,
-                   GTextAlignmentCenter, click_config_provider);
+  text_view_create(&s_text_view, window,
+                   s_mode == ComposeModeComment ? "Comment" : "Draft",
+                   UI_COMPOSE_FONT_KEY, GTextAlignmentCenter,
+                   click_config_provider);
   update_display();
 }
 
