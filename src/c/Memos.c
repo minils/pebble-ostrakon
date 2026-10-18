@@ -10,6 +10,12 @@ enum {
   KEY_MEMO_FAIL = 3
 };
 
+/* ---------- Persistent storage keys ---------- */
+// The draft is split across several keys because a single persisted value
+// is limited to PERSIST_DATA_MAX_LENGTH (256) bytes.
+#define PERSIST_KEY_DRAFT_BASE 100
+#define DRAFT_CHUNK_SIZE PERSIST_DATA_MAX_LENGTH
+
 /* ---------- UI ---------- */
 static Window *s_main_window;
 static TextLayer *s_text_layer;
@@ -20,6 +26,7 @@ static ScrollLayer *s_scroll_layer;
 /* ---------- Images ---------- */
 static GBitmap *send_image;
 static GBitmap *mic_image;
+static GBitmap *discard_image;
 
 /* ---------- Dictation ---------- */
 static DictationSession *s_dictation;
@@ -30,6 +37,7 @@ static AppTimer *s_status_timer;
 /* ---------- Values ----------- */
 static uint16_t s_num_menu_rows = 0;
 static char s_message[1024] = "";
+#define DRAFT_NUM_CHUNKS (sizeof(s_message) / DRAFT_CHUNK_SIZE)
 
 /* ---------- Forward declarations ---------- */
 static void start_dictation(void);
@@ -59,8 +67,62 @@ static void menu_draw_row_callback(GContext *ctx, const Layer *cell_layer,
 }
 
 /* =================================================================== */
+/*                               DRAFT                                 */
+/* =================================================================== */
+
+static void save_draft(void) {
+  size_t len = strlen(s_message) + 1; // include the null terminator
+  for (uint32_t i = 0; i < DRAFT_NUM_CHUNKS; i++) {
+    size_t offset = i * DRAFT_CHUNK_SIZE;
+    if (offset < len) {
+      size_t chunk_len = len - offset;
+      if (chunk_len > DRAFT_CHUNK_SIZE)
+        chunk_len = DRAFT_CHUNK_SIZE;
+      persist_write_data(PERSIST_KEY_DRAFT_BASE + i, s_message + offset,
+                         chunk_len);
+    } else {
+      persist_delete(PERSIST_KEY_DRAFT_BASE + i);
+    }
+  }
+}
+
+static void load_draft(void) {
+  for (uint32_t i = 0; i < DRAFT_NUM_CHUNKS; i++) {
+    if (!persist_exists(PERSIST_KEY_DRAFT_BASE + i))
+      break;
+    persist_read_data(PERSIST_KEY_DRAFT_BASE + i,
+                      s_message + i * DRAFT_CHUNK_SIZE, DRAFT_CHUNK_SIZE);
+  }
+  s_message[sizeof(s_message) - 1] = '\0';
+}
+
+static void clear_draft(void) {
+  s_message[0] = '\0';
+  for (uint32_t i = 0; i < DRAFT_NUM_CHUNKS; i++) {
+    persist_delete(PERSIST_KEY_DRAFT_BASE + i);
+  }
+}
+
+/* =================================================================== */
 /*                               UI                                    */
 /* =================================================================== */
+
+// Show the current draft (or the hint if empty) and fit the scroll area
+static void update_message_display(void) {
+  GRect bounds = layer_get_bounds(window_get_root_layer(s_main_window));
+
+  if (s_message[0] == '\0') {
+    text_layer_set_text(s_text_layer, "Press Select\nto Dictate");
+    scroll_layer_set_content_size(s_scroll_layer,
+                                  (GSize){bounds.size.w, bounds.size.h});
+    return;
+  }
+
+  text_layer_set_text(s_text_layer, s_message);
+  GSize textSize = text_layer_get_content_size(s_text_layer);
+  textSize.w = layer_get_bounds(text_layer_get_layer(s_text_layer)).size.w;
+  scroll_layer_set_content_size(s_scroll_layer, textSize);
+}
 
 static void main_window_load(Window *window) {
   Layer *window_layer = window_get_root_layer(window);
@@ -97,12 +159,18 @@ static void main_window_load(Window *window) {
   // layer_add_child(window_layer, menu_layer_get_layer(s_menu_layer));
   mic_image = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_DICTATE);
   send_image = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_SEND);
+  discard_image = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_DISCARD);
 
   s_actionbar_layer = action_bar_layer_create();
   action_bar_layer_set_icon_animated(s_actionbar_layer, BUTTON_ID_SELECT,
                                      mic_image, true);
   action_bar_layer_set_icon_animated(s_actionbar_layer, BUTTON_ID_DOWN,
                                      send_image, true);
+  action_bar_layer_set_icon_animated(s_actionbar_layer, BUTTON_ID_UP,
+                                     discard_image, true);
+
+  // restore a draft left over from a previous session
+  update_message_display();
   //
   //  layer_add_child(window_layer,
   //  action_bar_layer_get_layer(s_actionbar_layer));
@@ -117,10 +185,7 @@ static void main_window_unload(Window *window) {
 /* =================================================================== */
 
 static void clear_status(void *data) {
-  if (s_message[0] == '\0')
-    text_layer_set_text(s_text_layer, "Press Select\nto Dictate");
-  else
-    text_layer_set_text(s_text_layer, s_message);
+  update_message_display();
   s_status_timer = NULL;
 }
 
@@ -183,14 +248,8 @@ static void dictation_callback(DictationSession *session,
   if (s_message[0] != '\0')
     strcat(s_message, " "); // add a space if not the first dictation
   strcat(s_message, transcription);
-  // strcat_s(s_message, transcription, 1024);
-  // strncpy(s_message, transcription,1024);
-  text_layer_set_text(s_text_layer, s_message);
-  GSize textSize = text_layer_get_content_size(s_text_layer);
-  textSize.w = layer_get_bounds(text_layer_get_layer(s_text_layer)).size.w;
-  printf("get content size print test: w=%d, h=%d", textSize.w, textSize.h);
-  // text_layer_set_size(s_text_layer, textSize);
-  scroll_layer_set_content_size(s_scroll_layer, textSize);
+  save_draft();
+  update_message_display();
 }
 
 static void start_dictation(void) {
@@ -209,11 +268,8 @@ static void start_dictation(void) {
 
 static void inbox_received_handler(DictionaryIterator *iter, void *context) {
   if (dict_find(iter, KEY_MEMO_OK)) {
+    clear_draft();
     show_status("Sent 👍", true);
-    GRect bounds = layer_get_bounds(window_get_root_layer(s_main_window));
-    s_message[0] = '\0';
-    scroll_layer_set_content_size(s_scroll_layer,
-                                  (GSize){bounds.size.w, bounds.size.h});
   } else if (dict_find(iter, KEY_MEMO_FAIL)) {
     show_status("Send Failed", false);
   }
@@ -246,7 +302,10 @@ action_select_click_handler(ClickRecognizerRef ref,
   scroll_layer_set_click_config_onto_window(s_scroll_layer, s_main_window);
 }
 static void action_up_click_handler(ClickRecognizerRef ref, void *context) {
-  //???
+  if (s_message[0] != '\0') {
+    clear_draft();
+    show_status("Discarded", true);
+  }
   action_bar_layer_remove_from_window(s_actionbar_layer);
   scroll_layer_set_click_config_onto_window(s_scroll_layer, s_main_window);
 }
@@ -287,6 +346,8 @@ static void action_bar_click_config_provider(void *context) {
 /* =================================================================== */
 
 static void init(void) {
+  load_draft();
+
   /* ---- AppMessage ---- */
   // outbox must fit a full s_message plus the KEY_MEMO_DONE flag
   app_message_open(512, dict_calc_buffer_size(2, sizeof(s_message),
@@ -314,6 +375,9 @@ static void deinit(void) {
   }
   if (send_image) {
     gbitmap_destroy(send_image);
+  }
+  if (discard_image) {
+    gbitmap_destroy(discard_image);
   }
 
   if (s_dictation) {

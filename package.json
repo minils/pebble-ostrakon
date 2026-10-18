@@ -51,6 +51,11 @@
       	"type": "bitmap",
       	"name": "IMAGE_DICTATE",
       	"file": "mic.png"
+      },
+      {
+      	"type": "bitmap",
+      	"name": "IMAGE_DISCARD",
+      	"file": "discard.png"
       }]
     }
   }

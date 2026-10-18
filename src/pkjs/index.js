@@ -147,8 +147,12 @@ Pebble.addEventListener("ready", function () {
 
 
 Pebble.addEventListener("showConfiguration", function() {
-    console.log("Memos: Opening config page");
-  Pebble.openURL("http://erimow.github.io/memos-config/config.html");
+  console.log("Memos: Opening config page");
+  var configHtml = require("./config");
+  var current = getSettings() || {};
+  Pebble.openURL("data:text/html;charset=utf-8," +
+    encodeURIComponent(configHtml) + "#" +
+    encodeURIComponent(JSON.stringify(current)));
 });
 
 Pebble.addEventListener("webviewclosed", function(e) {
