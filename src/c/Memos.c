@@ -172,7 +172,10 @@ static void dictation_callback(DictationSession *session,
     return;
   }
   // if dictation does not fail
-  if ((strlen(s_message) + strlen(transcription)) > 1024) {
+  // account for the separating space and the null terminator
+  size_t separator_len = (s_message[0] != '\0') ? 1 : 0;
+  if (strlen(s_message) + separator_len + strlen(transcription) >=
+      sizeof(s_message)) {
     show_status("Buffer overload", false);
     return;
   }
@@ -285,7 +288,9 @@ static void action_bar_click_config_provider(void *context) {
 
 static void init(void) {
   /* ---- AppMessage ---- */
-  app_message_open(512, 512);
+  // outbox must fit a full s_message plus the KEY_MEMO_DONE flag
+  app_message_open(512, dict_calc_buffer_size(2, sizeof(s_message),
+                                              sizeof(uint8_t)));
   app_message_register_inbox_received(inbox_received_handler);
   app_message_register_inbox_dropped(inbox_dropped_handler);
 

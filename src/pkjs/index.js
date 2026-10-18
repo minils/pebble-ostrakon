@@ -89,6 +89,7 @@ function sendMemo(finalMemo) {
   var xhr = new XMLHttpRequest();
   var settings = getSettings();
   if (!settings || !settings.url || !settings.token) {
+  isSending = false;
   Pebble.sendAppMessage({ "KEY_MEMO_FAIL": 1 });
   return;
 }
@@ -123,6 +124,14 @@ function sendMemo(finalMemo) {
   xhr.onerror = function () {
     isSending = false;
     console.log("Memos: Network error");
+    Pebble.sendAppMessage({ "KEY_MEMO_FAIL": 1 });
+  };
+
+  // without a timeout a hanging request would block all further sends
+  xhr.timeout = 15000;
+  xhr.ontimeout = function () {
+    isSending = false;
+    console.log("Memos: Request timed out");
     Pebble.sendAppMessage({ "KEY_MEMO_FAIL": 1 });
   };
 
