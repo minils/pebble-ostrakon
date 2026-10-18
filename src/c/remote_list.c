@@ -185,13 +185,13 @@ void remote_list_remove(RemoteList *list, const char *id) {
   }
 }
 
-bool remote_list_is_more_row(const RemoteList *list, uint16_t index) {
-  return index == list->count && show_more_row(list);
-}
-
 // while a page loads, the list window shows its loading row instead
 static bool show_more_row(const RemoteList *list) {
   return list->count > 0 && list->has_more && !list->loading;
+}
+
+bool remote_list_is_more_row(const RemoteList *list, uint16_t index) {
+  return index == list->count && show_more_row(list);
 }
 
 uint16_t remote_list_get_count(void *context) {
