@@ -1,5 +1,6 @@
 #include "comm.h"
 #include "settings.h"
+#include "toast.h"
 
 #define COMM_TIMEOUT_MS 20000
 
@@ -49,6 +50,12 @@ static void restart_timeout(void) {
 
 bool comm_request(CommAction action, const char *target, const char *text,
                   CommHandler handler, void *context) {
+  return comm_request_page(action, target, text, -1, handler, context);
+}
+
+bool comm_request_page(CommAction action, const char *target,
+                       const char *text, int32_t offset, CommHandler handler,
+                       void *context) {
   comm_finish();
 
   DictionaryIterator *iter;
@@ -64,6 +71,9 @@ bool comm_request(CommAction action, const char *target, const char *text,
   }
   if (text) {
     dict_write_cstring(iter, MESSAGE_KEY_TEXT, text);
+  }
+  if (offset >= 0) {
+    dict_write_int32(iter, MESSAGE_KEY_ITEM_INDEX, offset);
   }
 
   if (app_message_outbox_send() != APP_MSG_OK) {
@@ -81,10 +91,19 @@ bool comm_request(CommAction action, const char *target, const char *text,
 /* =================================================================== */
 
 static void inbox_received_handler(DictionaryIterator *iter, void *context) {
-  // settings are pushed by the phone outside of any request
+  // settings and notices are pushed by the phone outside of any request
   int32_t vibrate = comm_get_int(iter, MESSAGE_KEY_VIBRATE, -1);
   if (vibrate >= 0) {
     settings_set_vibrate(vibrate != 0);
+  }
+  int32_t glance_count = comm_get_int(iter, MESSAGE_KEY_GLANCE_COUNT, -1);
+  if (glance_count >= 0) {
+    settings_set_glance_count(glance_count);
+  }
+  Tuple *notice = dict_find(iter, MESSAGE_KEY_NOTICE);
+  if (notice && notice->type == TUPLE_CSTRING) {
+    toast_show(notice->value->cstring, !comm_response_failed(iter));
+    return;
   }
 
   // responses to replaced requests are ignored

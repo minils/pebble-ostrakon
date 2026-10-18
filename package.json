@@ -36,7 +36,9 @@
       "ITEM_SUBTITLE",
       "LIST_COUNT",
       "VIBRATE",
-      "ITEM_FLAGS"
+      "ITEM_FLAGS",
+      "NOTICE",
+      "GLANCE_COUNT"
     ],
     "resources": {
       "media": [{

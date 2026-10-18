@@ -11,9 +11,11 @@
 enum {
   MemoActionOpen = 1,
   MemoActionTasks,
+  MemoActionAppend,
+  MemoActionComment,
+  MemoActionPin,
   MemoActionArchive,
   MemoActionDelete,
-  MemoActionComment,
 };
 
 static char s_name[COMM_ID_SIZE];
@@ -36,6 +38,23 @@ static void modify_handler(DictionaryIterator *iter, void *context) {
   memo_list_remove(s_name);
   toast_show(s_pending_action == MemoActionArchive ? "Archived" : "Deleted",
              true);
+}
+
+static void pin_handler(DictionaryIterator *iter, void *context) {
+  comm_finish();
+
+  if (!iter) {
+    toast_show("No response from phone", false);
+    return;
+  }
+  if (comm_response_failed(iter)) {
+    toast_show(comm_response_error(iter), false);
+    return;
+  }
+  if (comm_get_int(iter, MESSAGE_KEY_ITEM_FLAGS, 1) == 0) {
+    memo_list_unpinned(s_name);
+  }
+  toast_show(comm_response_error(iter), true); // "Pinned" or "Unpinned"
 }
 
 static void modify(CommAction action) {
@@ -63,6 +82,14 @@ static void action_chosen(int id, void *context) {
   case MemoActionComment:
     compose_window_push_comment(s_name);
     break;
+  case MemoActionAppend:
+    compose_window_push_append(s_name);
+    break;
+  case MemoActionPin:
+    if (!comm_request(CommActionTogglePin, s_name, NULL, pin_handler, NULL)) {
+      toast_show("Phone not connected", false);
+    }
+    break;
   }
 }
 
@@ -70,10 +97,12 @@ void memo_actions_open(const char *memo_name, bool include_open) {
   static const ActionItem items[] = {
       {.label = "Open", .id = MemoActionOpen},
       {.label = "Tasks", .id = MemoActionTasks},
+      {.label = "Append", .id = MemoActionAppend},
+      {.label = "Comment", .id = MemoActionComment},
+      {.label = "Pin / Unpin", .id = MemoActionPin},
       {.label = "Archive", .id = MemoActionArchive},
       {.label = "Delete", .id = MemoActionDelete,
        .confirm_label = "Yes, delete"},
-      {.label = "Comment", .id = MemoActionComment},
   };
 
   ui_copy_truncated(s_name, memo_name, sizeof(s_name));

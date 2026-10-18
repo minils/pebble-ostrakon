@@ -10,3 +10,6 @@ void compose_window_push_draft(int draft_index);
 
 // Comment on the memo with the given name, also starting with dictation
 void compose_window_push_comment(const char *memo_name);
+
+// Add dictated text to the end of the memo with the given name
+void compose_window_push_append(const char *memo_name);

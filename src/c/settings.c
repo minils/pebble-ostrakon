@@ -3,6 +3,7 @@
 #define PERSIST_KEY_VIBRATE 50
 
 static bool s_vibrate = true;
+static int32_t s_glance_count = -1;
 
 void settings_init(void) {
   if (persist_exists(PERSIST_KEY_VIBRATE)) {
@@ -18,3 +19,8 @@ void settings_set_vibrate(bool vibrate) {
     persist_write_bool(PERSIST_KEY_VIBRATE, vibrate);
   }
 }
+
+// not persisted: the glance itself is kept by the system
+int32_t settings_get_glance_count(void) { return s_glance_count; }
+
+void settings_set_glance_count(int32_t count) { s_glance_count = count; }

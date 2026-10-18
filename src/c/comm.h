@@ -20,6 +20,10 @@ typedef enum {
   CommActionComment = 8,
   CommActionListTasks = 9,
   CommActionToggleTask = 10,
+  CommActionAppend = 11,
+  CommActionSearch = 12,
+  CommActionListPinned = 13,
+  CommActionTogglePin = 14,
 } CommAction;
 
 // Called for every response message of the current request. iter is NULL
@@ -32,6 +36,11 @@ void comm_init(void);
 // could not be sent; the handler is not called in that case.
 bool comm_request(CommAction action, const char *target, const char *text,
                   CommHandler handler, void *context);
+
+// Same for a list request, asking for the page starting at offset
+bool comm_request_page(CommAction action, const char *target,
+                       const char *text, int32_t offset, CommHandler handler,
+                       void *context);
 
 // Stops delivering responses of the pending request
 void comm_finish(void);

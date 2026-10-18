@@ -17,6 +17,10 @@ var ACTION_DELETE        = 7;
 var ACTION_COMMENT       = 8;
 var ACTION_LIST_TASKS    = 9;
 var ACTION_TOGGLE_TASK   = 10;
+var ACTION_APPEND        = 11;
+var ACTION_SEARCH        = 12;
+var ACTION_LIST_PINNED   = 13;
+var ACTION_TOGGLE_PIN    = 14;
 
 /* ---------- LIMITS (MUST FIT THE BUFFERS IN comm.h) ---------- */
 var MAX_ID_BYTES       = 47;
@@ -28,6 +32,8 @@ var MAX_TAG_ITEMS      = 30;
 var MAX_TASK_ITEMS     = 30;
 
 var CACHE_KEY          = "memos_cache";
+var QUEUE_KEY          = "memos_queue";
+var DEFAULT_TODO_TAG   = "todo";
 var MAX_CACHED_MEMOS   = 200;
 var MAX_CACHED_CONTENT = 4000;
 
@@ -170,8 +176,8 @@ function inlineMarkdown(text) {
 
 // Converts markdown into lines of "<type><text>" that the watch renders
 // (see memo_view.c): 1/2 heading, p paragraph, b bullet, n numbered,
-// c open task, x done task, q quote, t tags, k code, - rule
-function markdownToLines(content) {
+// c open task, x done task, q quote, t tags, k code, - rule, m meta info
+function markdownLines(content) {
   var lines = [];
   var inCode = false;
 
@@ -203,8 +209,17 @@ function markdownToLines(content) {
     }
   });
 
-  if (lines.length === 0) lines.push("p(empty)");
+  return lines;
+}
+
+// Joins typed lines into the text sent to the watch
+function joinLines(lines) {
+  if (lines.length === 0) lines = ["p(empty)"];
   return truncateUtf8(lines.join("\n"), MAX_TEXT_BYTES);
+}
+
+function markdownToLines(content) {
+  return joinLines(markdownLines(content));
 }
 
 /* =========================================================
@@ -246,6 +261,25 @@ function toggleTaskLine(content, lineIndex) {
   return lines.join("\n");
 }
 
+// Adds text as new lines at the end of a memo, but above a trailing line
+// of tags, so the tags stay at the bottom
+function appendToContent(content, text) {
+  var lines = content.split("\n");
+  var end = lines.length;
+  while (end > 0 && (lines[end - 1].trim() === "" ||
+                     /^(\s*#[^\s#]+)+\s*$/.test(lines[end - 1]))) {
+    end--;
+  }
+  var trailing = lines.slice(end);
+  // keep the blank line that separates the tags from the text
+  if (trailing.length > 0 && trailing[0].trim() !== "") trailing.unshift("");
+  return lines.slice(0, end).concat(text.split("\n"), trailing).join("\n");
+}
+
+function isBlankMarkdown(text) {
+  return text.replace(/[-#\[\]\s]/g, "") === "";
+}
+
 /* =========================================================
  * Offline cache of recently fetched memos
  * ========================================================= */
@@ -277,7 +311,8 @@ function slimMemo(memo) {
     tags: memoTags(memo),
     displayTime: memo.displayTime || memo.createTime,
     parent: memo.parent,
-    state: memo.state || memo.rowStatus
+    state: memo.state || memo.rowStatus,
+    pinned: !!memo.pinned
   };
 }
 
@@ -366,8 +401,9 @@ function replyError(req, message) {
   reply(req, { "STATUS": 1, "TEXT": truncateUtf8(message, MAX_TITLE_BYTES) });
 }
 
-function replyList(req, items, offline) {
-  var head = { "LIST_COUNT": items.length };
+// hasMore marks that another page can be requested
+function replyList(req, items, offline, hasMore) {
+  var head = { "LIST_COUNT": items.length, "ITEM_FLAGS": hasMore ? 1 : 0 };
   if (offline) head["TEXT"] = "Offline: cached memos";
   replyOk(req, head);
   for (var i = 0; i < items.length; i++) {
@@ -379,6 +415,11 @@ function replyList(req, items, offline) {
       "ITEM_FLAGS": items[i].flags || 0
     });
   }
+}
+
+// A message for the watch outside of any request, shown as a toast
+function notifyWatch(text, success) {
+  enqueue({ "NOTICE": truncateUtf8(text, MAX_TITLE_BYTES), "STATUS": success ? 0 : 1 });
 }
 
 /* =========================================================
@@ -475,6 +516,109 @@ function memoItems(memos) {
   });
 }
 
+// Replies with one page of the memos passing `accept`, starting at the
+// offset the watch asked for
+function replyMemoPage(req, accept) {
+  var offset = req.offset || 0;
+  // one extra memo tells whether there is another page
+  fetchMemos(accept, offset + MAX_LIST_ITEMS + 1, function (err, memos, offline) {
+    if (err) {
+      replyError(req, err);
+      return;
+    }
+    var page = memos.slice(offset, offset + MAX_LIST_ITEMS);
+    replyList(req, memoItems(page), offline, memos.length > offset + MAX_LIST_ITEMS);
+  });
+}
+
+/* =========================================================
+ * Offline queue for new memos
+ * ========================================================= */
+
+function loadQueue() {
+  try {
+    return JSON.parse(localStorage.getItem(QUEUE_KEY)) || [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function saveQueue(queue) {
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+}
+
+var flushing = false;
+
+// Sends queued memos one by one; stops at the first network failure
+function flushQueue() {
+  if (flushing || loadQueue().length === 0) return;
+  flushing = true;
+  var sent = 0;
+
+  function next() {
+    var queue = loadQueue();
+    if (queue.length === 0) {
+      flushing = false;
+      if (sent > 0) {
+        notifyWatch(sent === 1 ? "Queued memo sent" : sent + " queued memos sent", true);
+        scheduleGlanceUpdate();
+      }
+      return;
+    }
+    apiRequest("POST", "memos", { content: queue[0].content }, function (err, memo) {
+      if (err && isOfflineError(err)) {
+        flushing = false;
+        return;
+      }
+      // a rejected memo would block the queue forever, so it is dropped
+      if (err) notifyWatch("Queued memo rejected: " + err, false);
+      else {
+        sent++;
+        if (memo && memo.name) saveCache([slimMemo(memo)].concat(loadCache()));
+      }
+      saveQueue(loadQueue().slice(1));
+      next();
+    });
+  }
+  next();
+}
+
+/* =========================================================
+ * App glance: open tasks of the memos with the todo tag
+ * ========================================================= */
+
+function todoTag() {
+  var settings = getSettings() || {};
+  return (settings.todoTag || DEFAULT_TODO_TAG).replace(/^#/, "").trim() ||
+    DEFAULT_TODO_TAG;
+}
+
+function updateGlance() {
+  var tag = todoTag();
+  fetchMemos(function (memo) { return hasTag(memo, tag); }, PAGE_SIZE * MAX_PAGES,
+    function (err, memos) {
+      if (err) return;
+      var open = 0;
+      memos.forEach(function (memo) {
+        findTasks(memo.content || "").forEach(function (task) {
+          if (!task.done) open++;
+        });
+      });
+      enqueue({ "GLANCE_COUNT": open });
+    });
+}
+
+var glanceTimer = null;
+
+// Several changes in a row only trigger one update
+function scheduleGlanceUpdate() {
+  if (glanceTimer) clearTimeout(glanceTimer);
+  glanceTimer = setTimeout(function () {
+    glanceTimer = null;
+    updateGlance();
+  }, 2000);
+}
+
 /* =========================================================
  * Request handlers
  * ========================================================= */
@@ -488,30 +632,50 @@ function handleCreate(req) {
     return;
   }
   apiRequest("POST", "memos", { content: content }, function (err, memo) {
+    if (err && isOfflineError(err)) {
+      // sent later, when the phone is online again
+      var queue = loadQueue();
+      queue.push({ content: content });
+      saveQueue(queue);
+      replyOk(req, { "TEXT": "Offline: memo queued" });
+      return;
+    }
     if (err) {
       replyError(req, err);
       return;
     }
     // so the new memo can also be viewed offline
     if (memo && memo.name) saveCache([slimMemo(memo)].concat(loadCache()));
+    scheduleGlanceUpdate();
     replyOk(req);
   });
 }
 
 function handleListRecent(req) {
-  fetchMemos(function () { return true; }, MAX_LIST_ITEMS,
-    function (err, memos, offline) {
-      if (err) replyError(req, err);
-      else replyList(req, memoItems(memos), offline);
-    });
+  replyMemoPage(req, function () { return true; });
 }
 
 function handleListByTag(req) {
-  fetchMemos(function (memo) { return hasTag(memo, req.target); }, MAX_LIST_ITEMS,
-    function (err, memos, offline) {
-      if (err) replyError(req, err);
-      else replyList(req, memoItems(memos), offline);
-    });
+  replyMemoPage(req, function (memo) { return hasTag(memo, req.target); });
+}
+
+function handleListPinned(req) {
+  replyMemoPage(req, function (memo) { return !!memo.pinned; });
+}
+
+// All words of the query must appear in the memo text or its tags
+function handleSearch(req) {
+  var words = (req.text || "").toLowerCase().split(/\s+/).filter(function (w) {
+    return w !== "";
+  });
+  if (words.length === 0) {
+    replyError(req, "Nothing to search");
+    return;
+  }
+  replyMemoPage(req, function (memo) {
+    var text = ((memo.content || "") + " " + memoTags(memo).join(" ")).toLowerCase();
+    return words.every(function (word) { return text.indexOf(word) !== -1; });
+  });
 }
 
 function handleListTags(req) {
@@ -543,11 +707,32 @@ function handleListTags(req) {
     });
 }
 
+function commentLines(comments) {
+  var lines = ["-", "2Comments"];
+  comments.slice().sort(function (a, b) {
+    return memoTime(a) - memoTime(b);
+  }).forEach(function (comment) {
+    lines.push("m" + formatDate(comment.displayTime || comment.createTime));
+    lines = lines.concat(markdownLines(comment.content || ""));
+  });
+  return lines;
+}
+
 function handleGet(req) {
   apiRequest("GET", req.target, null, function (err, memo) {
-    if (err && isOfflineError(err)) memo = findInCache(req.target);
-    if (memo) replyOk(req, { "TEXT": markdownToLines(memo.content || "") });
-    else replyError(req, err || "Memo not found");
+    if (err) {
+      // comments are not cached, so offline only the memo is shown
+      memo = isOfflineError(err) ? findInCache(req.target) : null;
+      if (memo) replyOk(req, { "TEXT": markdownToLines(memo.content || "") });
+      else replyError(req, err);
+      return;
+    }
+    var lines = markdownLines(memo.content || "");
+    apiRequest("GET", req.target + "/comments", null, function (commentErr, data) {
+      var comments = (!commentErr && data.memos) || [];
+      if (comments.length > 0) lines = lines.concat(commentLines(comments));
+      replyOk(req, { "TEXT": joinLines(lines) });
+    });
   });
 }
 
@@ -585,7 +770,7 @@ function handleDelete(req) {
 
 function handleComment(req) {
   var content = applyKeywords(req.text || "").trim();
-  if (content.replace(/[-#\[\]\s]/g, "") === "") {
+  if (isBlankMarkdown(content)) {
     replyError(req, "Comment is empty");
     return;
   }
@@ -646,7 +831,56 @@ function handleToggleTask(req) {
         }
         memo.content = content;
         replaceInCache(memo);
+        scheduleGlanceUpdate();
         replyOk(req, { "ITEM_FLAGS": task.done ? 0 : 1 });
+      });
+  });
+}
+
+function handleAppend(req) {
+  var text = applyKeywords(req.text || "").trim();
+  if (isBlankMarkdown(text)) {
+    replyError(req, "Nothing to append");
+    return;
+  }
+  // always append to the current content, so other edits are not lost
+  apiRequest("GET", req.target, null, function (err, memo) {
+    if (err) {
+      replyError(req, err);
+      return;
+    }
+    var content = appendToContent(memo.content || "", text);
+    apiRequest("PATCH", req.target + "?updateMask=content", { content: content },
+      function (patchErr) {
+        if (patchErr) {
+          replyError(req, patchErr);
+          return;
+        }
+        memo.content = content;
+        replaceInCache(memo);
+        scheduleGlanceUpdate();
+        replyOk(req);
+      });
+  });
+}
+
+function handleTogglePin(req) {
+  apiRequest("GET", req.target, null, function (err, memo) {
+    if (err) {
+      replyError(req, err);
+      return;
+    }
+    var pinned = !memo.pinned;
+    apiRequest("PATCH", req.target + "?updateMask=pinned", { pinned: pinned },
+      function (patchErr) {
+        if (patchErr) {
+          replyError(req, patchErr);
+          return;
+        }
+        memo.pinned = pinned;
+        replaceInCache(memo);
+        replyOk(req, { "ITEM_FLAGS": pinned ? 1 : 0,
+                       "TEXT": pinned ? "Pinned" : "Unpinned" });
       });
   });
 }
@@ -662,6 +896,10 @@ HANDLERS[ACTION_DELETE]      = handleDelete;
 HANDLERS[ACTION_COMMENT]     = handleComment;
 HANDLERS[ACTION_LIST_TASKS]  = handleListTasks;
 HANDLERS[ACTION_TOGGLE_TASK] = handleToggleTask;
+HANDLERS[ACTION_APPEND]      = handleAppend;
+HANDLERS[ACTION_SEARCH]      = handleSearch;
+HANDLERS[ACTION_LIST_PINNED] = handleListPinned;
+HANDLERS[ACTION_TOGGLE_PIN]  = handleTogglePin;
 
 /* =========================================================
  * AppMessage handler
@@ -672,7 +910,8 @@ Pebble.addEventListener("appmessage", function (e) {
     requestId: payload["REQUEST_ID"],
     action: payload["ACTION"],
     target: payload["ITEM_ID"], // memo name or tag the request refers to
-    text: payload["TEXT"]
+    text: payload["TEXT"],
+    offset: payload["ITEM_INDEX"] // first item of the requested page
   };
 
   var handler = HANDLERS[req.action];
@@ -681,6 +920,9 @@ Pebble.addEventListener("appmessage", function (e) {
     return;
   }
   console.log("Memos: Request", req.action, req.target || "");
+
+  // any request is a chance to send memos queued while offline
+  flushQueue();
 
   try {
     handler(req);
@@ -699,9 +941,27 @@ function sendWatchSettings() {
   enqueue({ "VIBRATE": settings.vibrate === false ? 0 : 1 });
 }
 
+// Tells the watch right away if the server or token do not work
+function testConnection() {
+  apiRequest("GET", "memos?pageSize=1", null, function (err) {
+    if (!err) notifyWatch("Connected to Memos", true);
+    else if (err === "Server error 401" || err === "Server error 403") {
+      notifyWatch("Token rejected (" + err.slice(-3) + ")", false);
+    } else if (err === "Server error 404") {
+      notifyWatch("API not found, check URL", false);
+    } else if (isOfflineError(err)) {
+      notifyWatch("Server not reachable", false);
+    } else {
+      notifyWatch(err, false);
+    }
+  });
+}
+
 Pebble.addEventListener("ready", function () {
   console.log("Memos: PebbleKit JS ready");
   sendWatchSettings();
+  flushQueue();
+  updateGlance();
 });
 
 Pebble.addEventListener("showConfiguration", function() {
@@ -721,6 +981,8 @@ Pebble.addEventListener("webviewclosed", function(e) {
     localStorage.setItem("memos_settings", JSON.stringify(settings));
     console.log("Memos: Settings saved");
     sendWatchSettings();
+    testConnection();
+    scheduleGlanceUpdate();
   } catch (err) {
     console.log("Memos: Failed to parse settings", err);
   }

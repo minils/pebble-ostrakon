@@ -18,6 +18,7 @@ typedef enum {
   BlockTags,
   BlockCode,
   BlockRule,
+  BlockMeta,
 } BlockType;
 
 typedef struct {
@@ -78,6 +79,8 @@ static BlockType type_for_code(char code) {
     return BlockCode;
   case '-':
     return BlockRule;
+  case 'm':
+    return BlockMeta;
   default: // 'p', 'n' and anything unknown
     return BlockParagraph;
   }
@@ -91,6 +94,7 @@ static GFont font_for(BlockType type) {
     return fonts_get_system_font(FONT_HEADING2);
   case BlockTags:
   case BlockCode:
+  case BlockMeta:
     return fonts_get_system_font(FONT_SMALL);
   default:
     return fonts_get_system_font(FONT_BODY);
@@ -116,6 +120,7 @@ static GColor text_color_for(BlockType type) {
   case BlockDone:
   case BlockQuote:
   case BlockCode:
+  case BlockMeta:
     return MUTED_COLOR;
   case BlockTags:
     return TAG_COLOR;

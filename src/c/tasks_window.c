@@ -170,5 +170,5 @@ void tasks_window_push(const char *memo_name) {
       },
       &s_list);
   list_window_push(s_list.window);
-  remote_list_load(&s_list, CommActionListTasks, s_memo_name);
+  remote_list_load(&s_list, CommActionListTasks, s_memo_name, NULL);
 }

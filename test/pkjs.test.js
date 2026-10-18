@@ -18,6 +18,10 @@ memos.push({ name: 'memos/md1', tags: ['idea'], createTime: '2026-10-01T09:00:00
   '- [ ] open task', '- [x] done task', '* bullet', '1. first', '> quoted', '---',
   '```', 'let x = 1;', '- [ ] in code', '```', '![pic](http://img)', '#idea #pebble'].join('\n') });
 memos.push({ name: 'memos/c1', content: 'a comment', parent: 'memos/m1', tags: [], state: 'NORMAL' });
+memos.push({ name: 'memos/c2', content: 'second **reply**', parent: 'memos/m3', tags: [], createTime: '2026-10-17T10:00:00Z', state: 'NORMAL' });
+memos.push({ name: 'memos/c3', content: 'first reply', parent: 'memos/m3', tags: [], createTime: '2026-10-16T10:00:00Z', state: 'NORMAL' });
+memos.find(x => x.name === 'memos/m5').pinned = true;
+memos.find(x => x.name === 'memos/m7').pinned = true;
 memos.push({ name: 'memos/u1', content: 'Ünïcödé 😀 ' + 'x'.repeat(2000), tags: ['work/sub'], createTime: '2026-10-18T08:00:00Z', state: 'NORMAL' });
 const created = [], comments = [];
 let serverDown = false;
@@ -43,6 +47,9 @@ const server = http.createServer((req, res) => {
       return send(200, memo);
     }
     if ((m = u.pathname.match(/^\/api\/v1\/(memos\/[\w]+)\/comments$/)) && req.method === 'POST') { comments.push([m[1], JSON.parse(body)]); return send(200, {}); }
+    if ((m = u.pathname.match(/^\/api\/v1\/(memos\/[\w]+)\/comments$/)) && req.method === 'GET') {
+      return send(200, { memos: memos.filter(x => x.parent === m[1]) });
+    }
     if ((m = u.pathname.match(/^\/api\/v1\/(memos\/[\w]+)$/))) {
       const memo = memos.find(x => x.name === m[1]);
       if (!memo) return send(404, {});
@@ -50,7 +57,7 @@ const server = http.createServer((req, res) => {
       if (req.method === 'DELETE') { memos = memos.filter(x => x !== memo); return send(200, {}); }
       if (req.method === 'PATCH') {
         const mask = u.searchParams.get('updateMask');
-        assert.ok(mask === 'state' || mask === 'content', mask);
+        assert.ok(['state', 'content', 'pinned'].includes(mask), mask);
         memo[mask] = JSON.parse(body)[mask]; return send(200, memo);
       }
     }
@@ -84,10 +91,10 @@ global.XMLHttpRequest = class {
 require(path.join(__dirname, '..', 'src', 'pkjs', 'index.js'));
 
 let reqId = 0;
-function request(action, target, text) {
+function request(action, target, text, offset) {
   const id = ++reqId;
   const before = received.length;
-  listeners.appmessage({ payload: { REQUEST_ID: id, ACTION: action, ITEM_ID: target, TEXT: text } });
+  listeners.appmessage({ payload: { REQUEST_ID: id, ACTION: action, ITEM_ID: target, TEXT: text, ITEM_INDEX: offset } });
   return new Promise(resolve => {
     const t = setInterval(() => {
       const msgs = received.slice(before).filter(m => m.REQUEST_ID === id);
@@ -243,12 +250,102 @@ setTimeout(() => { console.error('Test timed out'); process.exit(1); }, 30000).u
   assert.deepStrictEqual([r[0].STATUS, r[0].TEXT], [1, 'Server error 401']);
 
   // the vibration setting is pushed to the watch on start and on change;
-  // it defaults to on for settings saved before the option existed
-  const before = received.length;
+  // it defaults to on for settings saved before the option existed.
+  // Saving settings also tests the connection.
+  let before = received.length;
   listeners.ready({});
   listeners.webviewclosed({ response: encodeURIComponent(JSON.stringify({ url: 'x', token: 'y', vibrate: false })) });
-  await new Promise(res => setTimeout(res, 50));
-  assert.deepStrictEqual(received.slice(before), [{ VIBRATE: 1 }, { VIBRATE: 0 }]);
+  await new Promise(res => setTimeout(res, 100));
+  let pushed = received.slice(before);
+  assert.deepStrictEqual(pushed.filter(m => 'VIBRATE' in m), [{ VIBRATE: 1 }, { VIBRATE: 0 }]);
+  assert.deepStrictEqual(pushed.find(m => 'NOTICE' in m), { NOTICE: 'Server not reachable', STATUS: 1 });
+
+  const good = { url: `http://127.0.0.1:${port}`, token: 'tok', todoTag: '#home' };
+  const notice = async settings => {
+    const start = received.length;
+    listeners.webviewclosed({ response: encodeURIComponent(JSON.stringify(settings)) });
+    await new Promise(res => setTimeout(res, 100));
+    return received.slice(start).find(m => 'NOTICE' in m);
+  };
+  assert.deepStrictEqual(await notice({ ...good, token: 'bad' }), { NOTICE: 'Token rejected (401)', STATUS: 1 });
+  assert.deepStrictEqual(await notice({ ...good, url: good.url + '/nope' }), { NOTICE: 'API not found, check URL', STATUS: 1 });
+  assert.deepStrictEqual(await notice(good), { NOTICE: 'Connected to Memos', STATUS: 0 });
+
+  // paging: 20 memos per page, the head says whether there are more
+  r = await request(2);
+  assert.deepStrictEqual([r[0].LIST_COUNT, r[0].ITEM_FLAGS], [20, 1]);
+  const firstPage = r.slice(1).map(m => m.ITEM_ID);
+  r = await request(2, null, null, 20);
+  assert.deepStrictEqual([r[0].LIST_COUNT, r[0].ITEM_FLAGS], [20, 1]);
+  assert.deepStrictEqual(r.slice(1).map(m => m.ITEM_INDEX), [...Array(20).keys()]);
+  assert.ok(r.slice(1).every(m => !firstPage.includes(m.ITEM_ID)));
+  r = await request(2, null, null, 60);
+  assert.strictEqual(r[0].ITEM_FLAGS, 0);
+  assert.ok(r[0].LIST_COUNT > 0 && r[0].LIST_COUNT < 20);
+
+  // pinned memos and toggling the pin
+  r = await request(13);
+  assert.deepStrictEqual(r.slice(1).map(m => m.ITEM_ID), ['memos/m5', 'memos/m7']);
+  r = await request(14, 'memos/m5');
+  assert.deepStrictEqual([r[0].STATUS, r[0].ITEM_FLAGS, r[0].TEXT], [0, 0, 'Unpinned']);
+  r = await request(14, 'memos/m4');
+  assert.deepStrictEqual([r[0].STATUS, r[0].ITEM_FLAGS, r[0].TEXT], [0, 1, 'Pinned']);
+  r = await request(13);
+  assert.deepStrictEqual(r.slice(1).map(m => m.ITEM_ID), ['memos/m4', 'memos/m7']);
+
+  // search: all words, case-insensitive, also in tags; no comments
+  r = await request(12, null, 'Title 3');
+  assert.deepStrictEqual(r.slice(1).map(m => m.ITEM_ID).slice(0, 3), ['memos/m3', 'memos/m30', 'memos/m33']);
+  r = await request(12, null, 'PROJECT note');
+  assert.deepStrictEqual(r.slice(1).map(m => m.ITEM_ID), ['memos/p1']);
+  r = await request(12, null, 'idea');
+  assert.deepStrictEqual(r.slice(1).map(m => m.ITEM_ID), ['memos/md1']);
+  r = await request(12, null, 'reply');
+  assert.strictEqual(r[0].LIST_COUNT, 0);
+  r = await request(12, null, '  ');
+  assert.deepStrictEqual([r[0].STATUS, r[0].TEXT], [1, 'Nothing to search']);
+
+  // comments are shown below the memo, oldest first
+  r = await request(5, 'memos/m3');
+  assert.deepStrictEqual(r[0].TEXT.split('\n'), [
+    '1Title 3', 'pbody #work', '-', '2Comments',
+    'mOct 16, 10:00', 'pfirst reply', 'mOct 17, 10:00', 'psecond reply']);
+
+  // append: new lines go above the trailing tags
+  r = await request(11, 'memos/new1', 'check box eggs');
+  assert.strictEqual(r[0].STATUS, 0);
+  assert.strictEqual(memos.find(m => m.name === 'memos/new1').content,
+    '# shopping\n- [ ] milk\n- [ ] eggs\n\n#pebble #watch #food');
+  r = await request(11, 'memos/p1', 'second line');
+  assert.strictEqual(memos.find(m => m.name === 'memos/p1').content, 'project note\nsecond line');
+  r = await request(11, 'memos/p1', ' ');
+  assert.deepStrictEqual([r[0].STATUS, r[0].TEXT], [1, 'Nothing to append']);
+
+  // glance: open tasks of all memos with the todo tag from the settings
+  before = received.length;
+  listeners.ready({});
+  await new Promise(res => setTimeout(res, 300));
+  const glance = received.slice(before).find(m => 'GLANCE_COUNT' in m);
+  const expectedOpen = memos.filter(m => !m.parent && m.state !== 'ARCHIVED' && (m.tags || []).includes('home'))
+    .reduce((n, m) => n + (m.content.match(/^- \[ \]/gm) || []).length, 0);
+  assert.deepStrictEqual(glance, { GLANCE_COUNT: expectedOpen });
+  assert.ok(expectedOpen > 30);
+
+  // offline: new memos are queued and sent with the next request
+  serverDown = true;
+  r = await request(1, null, 'written offline');
+  assert.deepStrictEqual([r[0].STATUS, r[0].TEXT], [0, 'Offline: memo queued']);
+  r = await request(1, null, 'also offline');
+  assert.strictEqual(r[0].TEXT, 'Offline: memo queued');
+  assert.strictEqual(JSON.parse(localStorage.getItem('memos_queue')).length, 2);
+  serverDown = false;
+  before = received.length;
+  const createdBefore = created.length;
+  await request(2);
+  await new Promise(res => setTimeout(res, 200));
+  assert.deepStrictEqual(created.slice(createdBefore).map(c => c.content.split('\n')[0]), ['written offline', 'also offline']);
+  assert.deepStrictEqual(JSON.parse(localStorage.getItem('memos_queue')), []);
+  assert.deepStrictEqual(received.slice(before).find(m => 'NOTICE' in m), { NOTICE: '2 queued memos sent', STATUS: 0 });
 
   console.log('ALL OK');
   server.close();

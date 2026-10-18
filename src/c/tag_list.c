@@ -13,7 +13,7 @@ static RemoteList s_list = {
 
 static void select_row(uint16_t index, void *context) {
   remote_list_cancel(&s_list);
-  memo_list_push(s_items[index].id);
+  memo_list_push_tag(s_items[index].id);
 }
 
 static void unload(void *context) {
@@ -34,5 +34,5 @@ void tag_list_push(void) {
       },
       &s_list);
   list_window_push(s_list.window);
-  remote_list_load(&s_list, CommActionListTags, NULL);
+  remote_list_load(&s_list, CommActionListTags, NULL, NULL);
 }

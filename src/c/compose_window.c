@@ -2,6 +2,7 @@
 #include "actions.h"
 #include "comm.h"
 #include "drafts.h"
+#include "memo_window.h"
 #include "text_view.h"
 #include "toast.h"
 #include "ui.h"
@@ -9,6 +10,7 @@
 typedef enum {
   ComposeModeMemo,
   ComposeModeComment,
+  ComposeModeAppend,
 } ComposeMode;
 
 enum {
@@ -93,13 +95,39 @@ static void start_dictation(void) {
 /*                          SENDING                                    */
 /* =================================================================== */
 
+// A new memo that could not reach the phone is kept as a draft, so it
+// can be sent later from the drafts list
+static void phone_unreachable(const char *message) {
+  update_display();
+  if (s_mode != ComposeModeMemo) {
+    toast_show(message, false);
+    return;
+  }
+  if (drafts_save(s_draft_index, s_message) < 0) {
+    toast_show("Drafts full.\nSend or discard.", false);
+    return;
+  }
+  close_window();
+  toast_show("Phone unreachable.\nSaved as draft.", false);
+}
+
+static const char *success_message(void) {
+  switch (s_mode) {
+  case ComposeModeComment:
+    return "Comment added";
+  case ComposeModeAppend:
+    return "Appended";
+  default:
+    return "Sent";
+  }
+}
+
 static void send_handler(DictionaryIterator *iter, void *context) {
   comm_finish();
   s_sending = false;
 
   if (!iter) {
-    update_display();
-    toast_show("No response from phone", false);
+    phone_unreachable("No response from phone");
     return;
   }
   if (comm_response_failed(iter)) {
@@ -114,7 +142,16 @@ static void send_handler(DictionaryIterator *iter, void *context) {
   }
   s_message[0] = '\0';
   close_window();
-  toast_show(s_mode == ComposeModeComment ? "Comment added" : "Sent", true);
+  // the open memo shows the new comment or appended text after a reload
+  if (s_mode != ComposeModeMemo) {
+    memo_window_reload(s_target);
+  }
+  // e.g. "Offline: memo queued" when the phone sends it later
+  if (dict_find(iter, MESSAGE_KEY_TEXT)) {
+    toast_show(comm_response_error(iter), true);
+  } else {
+    toast_show(success_message(), true);
+  }
 }
 
 static void send(void) {
@@ -123,11 +160,12 @@ static void send(void) {
     return;
   }
 
-  CommAction action =
-      s_mode == ComposeModeComment ? CommActionComment : CommActionCreate;
-  const char *target = s_mode == ComposeModeComment ? s_target : NULL;
+  CommAction action = s_mode == ComposeModeComment  ? CommActionComment
+                      : s_mode == ComposeModeAppend ? CommActionAppend
+                                                    : CommActionCreate;
+  const char *target = s_mode == ComposeModeMemo ? NULL : s_target;
   if (!comm_request(action, target, s_message, send_handler, NULL)) {
-    toast_show("Phone not connected", false);
+    phone_unreachable("Phone not connected");
     return;
   }
 
@@ -187,9 +225,11 @@ static void back_click_handler(ClickRecognizerRef ref, void *context) {
     return;
   }
 
-  if (s_mode == ComposeModeComment) {
+  if (s_mode != ComposeModeMemo) {
     close_window();
-    toast_show("Comment discarded", false);
+    toast_show(s_mode == ComposeModeComment ? "Comment discarded"
+                                            : "Append discarded",
+               false);
     return;
   }
 
@@ -212,7 +252,9 @@ static void click_config_provider(void *context) {
 
 static void window_load(Window *window) {
   text_view_create(&s_text_view, window,
-                   s_mode == ComposeModeComment ? "Comment" : "Draft",
+                   s_mode == ComposeModeComment  ? "Comment"
+                   : s_mode == ComposeModeAppend ? "Append"
+                                                 : "Draft",
                    UI_TEXT_FONT_KEY, GTextAlignmentCenter,
                    click_config_provider);
   update_display();
@@ -274,4 +316,8 @@ void compose_window_push_draft(int draft_index) {
 
 void compose_window_push_comment(const char *memo_name) {
   push(ComposeModeComment, -1, NULL, memo_name, true);
+}
+
+void compose_window_push_append(const char *memo_name) {
+  push(ComposeModeAppend, -1, NULL, memo_name, true);
 }
