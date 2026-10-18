@@ -25,12 +25,17 @@
     "watchapp": {
       "watchface": false
     },
-    "messageKeys": {
-      "KEY_MEMO_CHUNK": 0,
-      "KEY_MEMO_DONE": 1,
-      "KEY_MEMO_OK": 2,
-      "KEY_MEMO_FAIL": 3
-    },
+    "messageKeys": [
+      "REQUEST_ID",
+      "ACTION",
+      "STATUS",
+      "TEXT",
+      "ITEM_ID",
+      "ITEM_INDEX",
+      "ITEM_TITLE",
+      "ITEM_SUBTITLE",
+      "LIST_COUNT"
+    ],
     "resources": {
       "media": [{
         "menuIcon": true,
@@ -42,22 +47,7 @@
       	"type": "bitmap",
       	"name": "IMAGE_LOGO",
       	"file": "memoslogo.png"
-        },
-      {
-      	"type": "bitmap",
-      	"name": "IMAGE_SEND",
-      	"file": "send.png"
-      },
-      {
-      	"type": "bitmap",
-      	"name": "IMAGE_DICTATE",
-      	"file": "mic.png"
-      },
-      {
-      	"type": "bitmap",
-      	"name": "IMAGE_DISCARD",
-      	"file": "discard.png"
-      }]
+        }]
     }
   }
 }
