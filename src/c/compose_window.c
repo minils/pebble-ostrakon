@@ -26,7 +26,8 @@ static int s_draft_index;
 static char s_target[COMM_ID_SIZE];
 static char s_message[COMM_MESSAGE_SIZE];
 static bool s_sending;
-static bool s_dictate_on_appear;
+
+static void open_window(void);
 
 /* =================================================================== */
 /*                          DISPLAY                                    */
@@ -74,7 +75,13 @@ static void dictation_callback(DictationSession *session,
   if (separator_len)
     strcat(s_message, " "); // add a space if not the first dictation
   strcat(s_message, transcription);
-  update_display();
+
+  // a new memo or comment only gets its window once there is text
+  if (s_window) {
+    update_display();
+  } else {
+    open_window();
+  }
 }
 
 static void start_dictation(void) {
@@ -215,20 +222,6 @@ static void window_load(Window *window) {
   update_display();
 }
 
-static void delayed_dictation(void *data) {
-  if (s_window) {
-    start_dictation();
-  }
-}
-
-static void window_appear(Window *window) {
-  if (s_dictate_on_appear) {
-    s_dictate_on_appear = false;
-    // give the window transition time to finish first
-    app_timer_register(200, delayed_dictation, NULL);
-  }
-}
-
 static void window_unload(Window *window) {
   text_view_destroy(&s_text_view);
   if (s_dictation) {
@@ -243,6 +236,17 @@ static void window_unload(Window *window) {
   s_window = NULL;
 }
 
+static void open_window(void) {
+  s_window = window_create();
+  window_set_window_handlers(s_window, (WindowHandlers){
+                                           .load = window_load,
+                                           .unload = window_unload,
+                                       });
+  window_stack_push(s_window, true);
+}
+
+static void delayed_dictation(void *data) { start_dictation(); }
+
 static void push(ComposeMode mode, int draft_index, const char *text,
                  const char *target, bool dictate) {
   if (s_window) {
@@ -251,21 +255,21 @@ static void push(ComposeMode mode, int draft_index, const char *text,
   s_mode = mode;
   s_draft_index = draft_index;
   s_sending = false;
-  s_dictate_on_appear = dictate;
   ui_copy_truncated(s_message, text ? text : "", sizeof(s_message));
   ui_copy_truncated(s_target, target ? target : "", sizeof(s_target));
 
-  s_window = window_create();
-  window_set_window_handlers(s_window, (WindowHandlers){
-                                           .load = window_load,
-                                           .appear = window_appear,
-                                           .unload = window_unload,
-                                       });
-  window_stack_push(s_window, true);
+  if (dictate) {
+    // the window opens after a successful dictation; cancelling it
+    // returns straight to where the user came from. The short delay lets
+    // a pending window transition (e.g. at quick launch) finish first.
+    app_timer_register(200, delayed_dictation, NULL);
+  } else {
+    open_window();
+  }
 }
 
-void compose_window_push_new(bool start_dictation) {
-  push(ComposeModeMemo, -1, NULL, NULL, start_dictation);
+void compose_window_push_new(void) {
+  push(ComposeModeMemo, -1, NULL, NULL, true);
 }
 
 void compose_window_push_draft(int draft_index) {

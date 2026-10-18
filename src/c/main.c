@@ -50,7 +50,7 @@ static void get_row(uint16_t index, const char **title, const char **subtitle,
 static void select_row(uint16_t index, void *context) {
   switch (index) {
   case MainRowNew:
-    compose_window_push_new(true);
+    compose_window_push_new();
     break;
   case MainRowRecent:
     memo_list_push(NULL);
@@ -94,7 +94,7 @@ static void init(void) {
 
   /* ---- Quick launch: start a new memo right away ---- */
   if (launch_reason() == APP_LAUNCH_QUICK_LAUNCH) {
-    compose_window_push_new(true);
+    compose_window_push_new();
   }
 }
 
