@@ -1,12 +1,12 @@
 {
-  "name": "Memos",
-  "author": "erimow",
-  "version": "1.0.0",
+  "name": "ostrakon",
+  "author": "minils",
+  "version": "2.0.0",
   "keywords": ["pebble-app"],
   "private": true,
   "dependencies": {},
   "pebble": {
-    "displayName": "Memos",
+    "displayName": "Ostrakon",
     "uuid": "64cf3c66-9218-4f8a-8861-f25f1cc0efaa",
     "sdkVersion": "3",
     "enableMultiJS": true,

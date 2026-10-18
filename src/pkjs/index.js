@@ -324,7 +324,7 @@ function saveCache(memos) {
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify(memos.slice(0, MAX_CACHED_MEMOS)));
   } catch (err) {
-    console.log("Memos: Could not save cache", err);
+    console.log("Ostrakon: Could not save cache", err);
   }
 }
 
@@ -399,7 +399,7 @@ function pumpOutbox() {
   }, function () {
     entry.retries++;
     if (entry.retries > 2) {
-      console.log("Memos: Dropping message after retries");
+      console.log("Ostrakon: Dropping message after retries");
       outbox.shift();
     }
     outboxBusy = false;
@@ -422,7 +422,7 @@ function replyOk(req, fields) {
 }
 
 function replyError(req, message) {
-  console.log("Memos: Request failed:", message);
+  console.log("Ostrakon: Request failed:", message);
   reply(req, { "STATUS": 1, "TEXT": truncateUtf8(message, MAX_TITLE_BYTES) });
 }
 
@@ -991,10 +991,10 @@ Pebble.addEventListener("appmessage", function (e) {
 
   var handler = HANDLERS[req.action];
   if (!handler) {
-    console.log("Memos: Unknown action", req.action);
+    console.log("Ostrakon: Unknown action", req.action);
     return;
   }
-  console.log("Memos: Request", req.action, req.target || "");
+  console.log("Ostrakon: Request", req.action, req.target || "");
 
   // any request is a chance to send memos queued while offline
   flushQueue();
@@ -1002,7 +1002,7 @@ Pebble.addEventListener("appmessage", function (e) {
   try {
     handler(req);
   } catch (err) {
-    console.log("Memos: Handler error", err);
+    console.log("Ostrakon: Handler error", err);
     replyError(req, "Phone error");
   }
 });
@@ -1033,14 +1033,14 @@ function testConnection() {
 }
 
 Pebble.addEventListener("ready", function () {
-  console.log("Memos: PebbleKit JS ready");
+  console.log("Ostrakon: PebbleKit JS ready");
   sendWatchSettings();
   flushQueue();
   scheduleGlanceUpdate(GLANCE_DELAY_MS);
 });
 
 Pebble.addEventListener("showConfiguration", function() {
-  console.log("Memos: Opening config page");
+  console.log("Ostrakon: Opening config page");
   var configHtml = require("./config");
   var current = getSettings() || {};
   Pebble.openURL("data:text/html;charset=utf-8," +
@@ -1054,11 +1054,11 @@ Pebble.addEventListener("webviewclosed", function(e) {
   try {
     var settings = JSON.parse(decodeURIComponent(e.response));
     localStorage.setItem("memos_settings", JSON.stringify(settings));
-    console.log("Memos: Settings saved");
+    console.log("Ostrakon: Settings saved");
     sendWatchSettings();
     testConnection();
     scheduleGlanceUpdate();
   } catch (err) {
-    console.log("Memos: Failed to parse settings", err);
+    console.log("Ostrakon: Failed to parse settings", err);
   }
 });
