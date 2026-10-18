@@ -23,7 +23,7 @@ static void window_load(Window *window) {
   s_text_layer = text_layer_create(GRect(inset, bounds.size.h / 2 - 34,
                                          bounds.size.w - 2 * inset, 68));
   text_layer_set_text_alignment(s_text_layer, GTextAlignmentCenter);
-  text_layer_set_font(s_text_layer, fonts_get_system_font(UI_COMPOSE_FONT_KEY));
+  text_layer_set_font(s_text_layer, fonts_get_system_font(UI_TEXT_FONT_KEY));
   text_layer_set_text(s_text_layer, s_text);
   layer_add_child(root, text_layer_get_layer(s_text_layer));
 }

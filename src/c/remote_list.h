@@ -7,6 +7,7 @@ typedef struct {
   char id[COMM_ID_SIZE];
   char title[COMM_TITLE_SIZE];
   char subtitle[COMM_SUBTITLE_SIZE];
+  int32_t flags; // meaning depends on the list, e.g. task done
 } RemoteListItem;
 
 // Items of a list loaded from the phone, shown in a ListWindow

@@ -15,6 +15,8 @@ var ACTION_GET           = 5;
 var ACTION_ARCHIVE       = 6;
 var ACTION_DELETE        = 7;
 var ACTION_COMMENT       = 8;
+var ACTION_LIST_TASKS    = 9;
+var ACTION_TOGGLE_TASK   = 10;
 
 /* ---------- LIMITS (MUST FIT THE BUFFERS IN comm.h) ---------- */
 var MAX_ID_BYTES       = 47;
@@ -23,6 +25,7 @@ var MAX_SUBTITLE_BYTES = 47;
 var MAX_TEXT_BYTES     = 1500;
 var MAX_LIST_ITEMS     = 20;
 var MAX_TAG_ITEMS      = 30;
+var MAX_TASK_ITEMS     = 30;
 
 var CACHE_KEY          = "memos_cache";
 var MAX_CACHED_MEMOS   = 200;
@@ -205,6 +208,45 @@ function markdownToLines(content) {
 }
 
 /* =========================================================
+ * Tasks (markdown checkboxes)
+ * ========================================================= */
+
+var TASK_REGEX = /^(\s*[-*+]\s+\[)([ xX])(\]\s*)(.*)$/;
+
+// Checkbox lines of a memo outside code blocks, in order
+function findTasks(content) {
+  var tasks = [];
+  var inCode = false;
+  content.split("\n").forEach(function (line, lineIndex) {
+    if (/^\s*```/.test(line)) {
+      inCode = !inCode;
+      return;
+    }
+    var m = !inCode && line.match(TASK_REGEX);
+    if (m) {
+      var text = inlineMarkdown(m[4].trim());
+      // inline tags are noise in a one-line task, like in memoTitle
+      var withoutTags = text.replace(/(^|\s)#[^\s#]+/g, "").trim();
+      tasks.push({
+        line: lineIndex,
+        done: m[2] !== " ",
+        text: truncateUtf8(withoutTags || text || "(empty)", MAX_TITLE_BYTES)
+      });
+    }
+  });
+  return tasks;
+}
+
+// Flips the checkbox of a task line, returns the new content
+function toggleTaskLine(content, lineIndex) {
+  var lines = content.split("\n");
+  lines[lineIndex] = lines[lineIndex].replace(TASK_REGEX, function (m, pre, mark, post, text) {
+    return pre + (mark === " " ? "x" : " ") + post + text;
+  });
+  return lines.join("\n");
+}
+
+/* =========================================================
  * Offline cache of recently fetched memos
  * ========================================================= */
 
@@ -250,6 +292,12 @@ function updateCache(fetched, complete) {
     return !names[memo.name] && memoTime(memo) < oldest;
   });
   saveCache(fetched.map(slimMemo).concat(older));
+}
+
+function replaceInCache(memo) {
+  saveCache(loadCache().map(function (cached) {
+    return cached.name === memo.name ? slimMemo(memo) : cached;
+  }));
 }
 
 function removeFromCache(name) {
@@ -327,7 +375,8 @@ function replyList(req, items, offline) {
       "ITEM_INDEX": i,
       "ITEM_ID": truncateUtf8(items[i].id, MAX_ID_BYTES),
       "ITEM_TITLE": items[i].title,
-      "ITEM_SUBTITLE": items[i].subtitle
+      "ITEM_SUBTITLE": items[i].subtitle,
+      "ITEM_FLAGS": items[i].flags || 0
     });
   }
 }
@@ -546,6 +595,66 @@ function handleComment(req) {
   });
 }
 
+// Task ids are "<memo name>#<task index within the memo>"
+function handleListTasks(req) {
+  fetchMemos(function () { return true; }, PAGE_SIZE * MAX_PAGES,
+    function (err, memos, offline) {
+      if (err) {
+        replyError(req, err);
+        return;
+      }
+      var open = [];
+      var done = [];
+      memos.forEach(function (memo) {
+        findTasks(memo.content || "").forEach(function (task, index) {
+          // the memo title gives context, unless the task is the title
+          var title = memoTitle(memo);
+          var item = {
+            id: memo.name + "#" + index,
+            title: task.text,
+            subtitle: title === task.text
+              ? memoSubtitle(memo)
+              : truncateUtf8(title, MAX_SUBTITLE_BYTES),
+            flags: task.done ? 1 : 0
+          };
+          (task.done ? done : open).push(item);
+        });
+      });
+      replyList(req, open.concat(done).slice(0, MAX_TASK_ITEMS), offline);
+    });
+}
+
+function handleToggleTask(req) {
+  var separator = (req.target || "").lastIndexOf("#");
+  var name = req.target.substring(0, separator);
+  var index = parseInt(req.target.substring(separator + 1), 10);
+
+  // always toggle the current content, so other edits are not lost
+  apiRequest("GET", name, null, function (err, memo) {
+    if (err) {
+      replyError(req, err);
+      return;
+    }
+    var task = findTasks(memo.content || "")[index];
+    // the watch sends the task text it shows, to catch edits since then
+    if (!task || (req.text && task.text !== req.text)) {
+      replyError(req, "Memo changed, reload tasks");
+      return;
+    }
+    var content = toggleTaskLine(memo.content, task.line);
+    apiRequest("PATCH", name + "?updateMask=content", { content: content },
+      function (patchErr) {
+        if (patchErr) {
+          replyError(req, patchErr);
+          return;
+        }
+        memo.content = content;
+        replaceInCache(memo);
+        replyOk(req, { "ITEM_FLAGS": task.done ? 0 : 1 });
+      });
+  });
+}
+
 var HANDLERS = {};
 HANDLERS[ACTION_CREATE]      = handleCreate;
 HANDLERS[ACTION_LIST_RECENT] = handleListRecent;
@@ -555,6 +664,8 @@ HANDLERS[ACTION_GET]         = handleGet;
 HANDLERS[ACTION_ARCHIVE]     = handleArchive;
 HANDLERS[ACTION_DELETE]      = handleDelete;
 HANDLERS[ACTION_COMMENT]     = handleComment;
+HANDLERS[ACTION_LIST_TASKS]  = handleListTasks;
+HANDLERS[ACTION_TOGGLE_TASK] = handleToggleTask;
 
 /* =========================================================
  * AppMessage handler

@@ -18,6 +18,8 @@ typedef enum {
   CommActionArchive = 6,
   CommActionDelete = 7,
   CommActionComment = 8,
+  CommActionListTasks = 9,
+  CommActionToggleTask = 10,
 } CommAction;
 
 // Called for every response message of the current request. iter is NULL

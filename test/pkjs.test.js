@@ -1,6 +1,7 @@
 // End-to-end test of src/pkjs/index.js against a mock Memos server.
 // Stubs the PebbleKit JS environment and simulates watch requests.
 // Run with: node test/pkjs.test.js (needs Node 18+ for fetch)
+process.env.TZ = 'UTC'; // dates in list subtitles are local time
 const http = require('http');
 const assert = require('assert');
 const path = require('path');
@@ -15,7 +16,7 @@ memos.push({ name: 'memos/p1', content: 'project note', tags: ['proj/a'], create
 memos.push({ name: 'memos/md1', tags: ['idea'], createTime: '2026-10-01T09:00:00Z', state: 'NORMAL', content: [
   '# Big title', '', '## Sub *title*', 'Some **bold** and `code` with [a link](http://x.y).',
   '- [ ] open task', '- [x] done task', '* bullet', '1. first', '> quoted', '---',
-  '```', 'let x = 1;', '```', '![pic](http://img)', '#idea #pebble'].join('\n') });
+  '```', 'let x = 1;', '- [ ] in code', '```', '![pic](http://img)', '#idea #pebble'].join('\n') });
 memos.push({ name: 'memos/c1', content: 'a comment', parent: 'memos/m1', tags: [], state: 'NORMAL' });
 memos.push({ name: 'memos/u1', content: 'Ünïcödé 😀 ' + 'x'.repeat(2000), tags: ['work/sub'], createTime: '2026-10-18T08:00:00Z', state: 'NORMAL' });
 const created = [], comments = [];
@@ -48,8 +49,9 @@ const server = http.createServer((req, res) => {
       if (req.method === 'GET') return send(200, memo);
       if (req.method === 'DELETE') { memos = memos.filter(x => x !== memo); return send(200, {}); }
       if (req.method === 'PATCH') {
-        assert.strictEqual(u.searchParams.get('updateMask'), 'state');
-        memo.state = JSON.parse(body).state; return send(200, memo);
+        const mask = u.searchParams.get('updateMask');
+        assert.ok(mask === 'state' || mask === 'content', mask);
+        memo[mask] = JSON.parse(body)[mask]; return send(200, memo);
       }
     }
     send(404, {});
@@ -149,7 +151,29 @@ setTimeout(() => { console.error('Test timed out'); process.exit(1); }, 30000).u
   assert.deepStrictEqual(r[0].TEXT.split('\n'), [
     '1Big title', '2Sub title', 'pSome bold and code with a link.',
     'copen task', 'xdone task', 'bbullet', 'n1. first', 'qquoted', '-',
-    'klet x = 1;', 'p[pic]', 't#idea #pebble']);
+    'klet x = 1;', 'k- [ ] in code', 'p[pic]', 't#idea #pebble']);
+
+  // tasks: open ones first, ids are memo name and task index
+  r = await request(9);
+  assert.strictEqual(r[0].LIST_COUNT, 30);
+  const tasks = r.slice(1);
+  assert.ok(tasks.every(t => t.ITEM_FLAGS === 0));
+  assert.deepStrictEqual([tasks[0].ITEM_ID, tasks[0].ITEM_TITLE, tasks[0].ITEM_SUBTITLE], ['memos/m1#0', 'task 1', 'Oct 11, 12:01']);
+
+  // toggling patches the memo content; code blocks are not tasks
+  r = await request(10, 'memos/md1#0', 'open task');
+  assert.deepStrictEqual([r[0].STATUS, r[0].ITEM_FLAGS], [0, 1]);
+  let md1 = memos.find(m => m.name === 'memos/md1').content;
+  assert.ok(md1.includes('- [x] open task') && md1.includes('- [x] done task') && md1.includes('- [ ] in code'));
+  r = await request(10, 'memos/md1#1', 'done task');
+  assert.deepStrictEqual([r[0].STATUS, r[0].ITEM_FLAGS], [0, 0]);
+  md1 = memos.find(m => m.name === 'memos/md1').content;
+  assert.ok(md1.includes('- [ ] done task'));
+  r = await request(10, 'memos/md1#0', 'something else');
+  assert.deepStrictEqual([r[0].STATUS, r[0].TEXT], [1, 'Memo changed, reload tasks']);
+  r = await request(10, 'memos/md1#5', 'x');
+  assert.strictEqual(r[0].STATUS, 1);
+  assert.ok(memos.find(m => m.name === 'memos/md1').content.includes('- [x] open task'));
 
   // create with keywords and tags; empty memos are rejected
   r = await request(1, null, 'title big shopping new line check box milk hashtag Food');

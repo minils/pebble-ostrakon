@@ -4,9 +4,9 @@
 /* ---------- Fonts ---------- */
 // Larger displays (emery, gabbro) get bigger fonts so text is not tiny
 #if PBL_DISPLAY_WIDTH >= 200
-#define UI_COMPOSE_FONT_KEY FONT_KEY_GOTHIC_28_BOLD
+#define UI_TEXT_FONT_KEY FONT_KEY_GOTHIC_28
 #else
-#define UI_COMPOSE_FONT_KEY FONT_KEY_GOTHIC_24_BOLD
+#define UI_TEXT_FONT_KEY FONT_KEY_GOTHIC_24
 #endif
 
 /* ---------- Colors ---------- */

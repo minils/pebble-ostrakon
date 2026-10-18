@@ -28,10 +28,34 @@ static void draw_row(GContext *ctx, const Layer *cell_layer,
     return;
   }
 
+  if (list->callbacks.draw_row) {
+    list->callbacks.draw_row(ctx, cell_layer, cell_index->row, list->context);
+    return;
+  }
+
   const char *title = "";
   const char *subtitle = NULL;
   list->callbacks.get_row(cell_index->row, &title, &subtitle, list->context);
   menu_cell_basic_draw(ctx, cell_layer, title, subtitle, NULL);
+}
+
+static int16_t get_cell_height(MenuLayer *menu_layer, MenuIndex *cell_index,
+                               void *data) {
+  ListWindow *list = data;
+  if (list->callbacks.cell_height > 0 &&
+      list->callbacks.get_count(list->context) > 0) {
+    return list->callbacks.cell_height;
+  }
+  return MENU_CELL_BASIC_CELL_HEIGHT;
+}
+
+static void select_long_click(MenuLayer *menu_layer, MenuIndex *cell_index,
+                              void *data) {
+  ListWindow *list = data;
+  if (list->callbacks.select_long &&
+      cell_index->row < list->callbacks.get_count(list->context)) {
+    list->callbacks.select_long(cell_index->row, list->context);
+  }
 }
 
 static void select_click(MenuLayer *menu_layer, MenuIndex *cell_index,
@@ -55,7 +79,9 @@ static void window_load(Window *window) {
                            (MenuLayerCallbacks){
                                .get_num_rows = get_num_rows,
                                .draw_row = draw_row,
+                               .get_cell_height = get_cell_height,
                                .select_click = select_click,
+                               .select_long_click = select_long_click,
                            });
   menu_layer_set_highlight_colors(list->menu_layer, UI_HIGHLIGHT_COLOR,
                                   UI_HIGHLIGHT_TEXT_COLOR);

@@ -45,6 +45,7 @@ static void response_handler(DictionaryIterator *iter, void *context) {
                    sizeof(item->title));
   comm_copy_string(iter, MESSAGE_KEY_ITEM_SUBTITLE, item->subtitle,
                    sizeof(item->subtitle));
+  item->flags = comm_get_int(iter, MESSAGE_KEY_ITEM_FLAGS, 0);
 
   // items arrive in order, so they can be shown while the rest loads
   list->count = index + 1;

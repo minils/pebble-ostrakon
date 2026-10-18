@@ -34,11 +34,7 @@ static void open_window(void);
 /* =================================================================== */
 
 static void update_display(void) {
-  if (s_message[0] == '\0') {
-    text_view_set_text(&s_text_view, "Press Select\nto Dictate");
-  } else {
-    text_view_set_text(&s_text_view, s_message);
-  }
+  text_view_set_text(&s_text_view, s_message);
 }
 
 static void close_window(void) {
@@ -217,7 +213,7 @@ static void click_config_provider(void *context) {
 static void window_load(Window *window) {
   text_view_create(&s_text_view, window,
                    s_mode == ComposeModeComment ? "Comment" : "Draft",
-                   UI_COMPOSE_FONT_KEY, GTextAlignmentCenter,
+                   UI_TEXT_FONT_KEY, GTextAlignmentCenter,
                    click_config_provider);
   update_display();
 }
