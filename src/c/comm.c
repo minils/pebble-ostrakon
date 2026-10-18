@@ -1,4 +1,5 @@
 #include "comm.h"
+#include "i18n.h"
 #include "settings.h"
 #include "toast.h"
 
@@ -96,6 +97,10 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
   if (vibrate >= 0) {
     settings_set_vibrate(vibrate != 0);
   }
+  int32_t language = comm_get_int(iter, MESSAGE_KEY_LANGUAGE, -1);
+  if (language >= 0) {
+    i18n_set_language(language);
+  }
   int32_t glance_count = comm_get_int(iter, MESSAGE_KEY_GLANCE_COUNT, -1);
   if (glance_count >= 0) {
     settings_set_glance_count(glance_count);
@@ -168,7 +173,7 @@ const char *comm_response_error(DictionaryIterator *iter) {
   if (tuple && tuple->type == TUPLE_CSTRING) {
     return tuple->value->cstring;
   }
-  return "Request failed";
+  return tr("Request failed");
 }
 
 void comm_init(void) {

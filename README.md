@@ -31,6 +31,10 @@ Ostrakon is a fork of [pebble-memos](https://github.com/erimow/pebble-memos) by 
 * **Pin / Unpin**, **Archive** and **Delete** (with confirmation).
 * The **app glance** in the launcher shows the number of open tasks in all memos with your to-do tag.
 
+**Languages**
+
+The app speaks English and German. By default it follows the language of the watch; the language can also be chosen in the settings.
+
 **Watch support**
 
 Built for all current Pebble platforms, including the new Core Devices watches: basalt, chalk, diorite, emery (Pebble Time 2), flint (Pebble 2 Duo) and gabbro (Pebble Round 2).
@@ -44,6 +48,8 @@ While dictating a memo, these words are turned into markdown:
 * **new line**: a line break
 * **hashtag** *word*: adds the tag `#word`
 
+The German keywords work too: **Checkbox** or **Kontrollkästchen**, **Überschrift groß / mittel / klein** (or **Titel**), **neue Zeile** and **Hashtag** *Wort*.
+
 ### Settings
 
 Open the app settings in the Pebble app on your phone:
@@ -54,6 +60,7 @@ Open the app settings in the Pebble app on your phone:
 * **Default Tags** added to every new memo, e.g. `#pebble`
 * **To-do Tag** whose open tasks the app glance counts, `#todo` by default
 * **Vibrate** on success and errors
+* **Language**: automatic (the watch language), English or Deutsch
 
 ### Development
 

@@ -1,4 +1,5 @@
 #include "tasks_window.h"
+#include "i18n.h"
 #include "memo_window.h"
 #include "remote_list.h"
 #include "toast.h"
@@ -104,7 +105,7 @@ static void toggle_handler(DictionaryIterator *iter, void *context) {
   if (!iter || comm_response_failed(iter)) {
     // undo the optimistic change
     item->flags ^= TASK_DONE;
-    toast_show(iter ? comm_response_error(iter) : "No response from phone",
+    toast_show(iter ? comm_response_error(iter) : tr("No response from phone"),
                false);
   } else {
     item->flags = comm_get_int(iter, MESSAGE_KEY_ITEM_FLAGS, item->flags);
@@ -125,7 +126,7 @@ static void select_row(uint16_t index, void *context) {
   // the title lets the phone check that the memo did not change meanwhile
   if (!comm_request(CommActionToggleTask, item->id, item->title,
                     toggle_handler, NULL)) {
-    toast_show("Phone not connected", false);
+    toast_show(tr("Phone not connected"), false);
     return;
   }
   s_toggling = index;

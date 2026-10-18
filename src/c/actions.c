@@ -1,4 +1,5 @@
 #include "actions.h"
+#include "i18n.h"
 #include "ui.h"
 
 #define ACTIONS_CANCEL (-1)
@@ -35,7 +36,7 @@ void actions_open(const ActionItem *items, int count, ActionsCallback callback,
       ActionMenuLevel *confirm = action_menu_level_create(2);
       action_menu_level_add_action(confirm, items[i].confirm_label,
                                    action_performed, data);
-      action_menu_level_add_action(confirm, "Cancel", action_performed,
+      action_menu_level_add_action(confirm, tr("Cancel"), action_performed,
                                    (void *)(intptr_t)ACTIONS_CANCEL);
       action_menu_level_add_child(root, confirm, items[i].label);
     } else {

@@ -1,4 +1,5 @@
 #include "remote_list.h"
+#include "i18n.h"
 #include "toast.h"
 #include "ui.h"
 
@@ -83,7 +84,7 @@ static void response_handler(DictionaryIterator *iter, void *context) {
 
   if (!iter) {
     set_loading(list, false);
-    show_error(list, "No response from phone");
+    show_error(list, tr("No response from phone"));
     return;
   }
   if (comm_response_failed(iter)) {
@@ -106,7 +107,7 @@ static void response_handler(DictionaryIterator *iter, void *context) {
     if (list->expected <= list->page_start) {
       finish(list);
       if (list->count == 0) {
-        list_window_set_status(list->window, list->empty_text);
+        list_window_set_status(list->window, tr(list->empty_text));
       }
       list_window_reload(list->window);
       return;
@@ -140,7 +141,7 @@ static void request_page(RemoteList *list) {
                         list->text[0] ? list->text : NULL, list->page_start,
                         response_handler, list));
   if (!list->loading) {
-    show_error(list, "Phone not connected");
+    show_error(list, tr("Phone not connected"));
   }
 }
 
@@ -178,7 +179,7 @@ void remote_list_remove(RemoteList *list, const char *id) {
     list->count--;
     list->expected--;
     if (list->count == 0) {
-      list_window_set_status(list->window, list->empty_text);
+      list_window_set_status(list->window, tr(list->empty_text));
     }
     list_window_reload(list->window);
     return;
@@ -203,7 +204,7 @@ void remote_list_get_row(uint16_t index, const char **title,
                          const char **subtitle, void *context) {
   RemoteList *list = context;
   if (remote_list_is_more_row(list, index)) {
-    *title = "Load more";
+    *title = tr("Load more");
     *subtitle = NULL;
     return;
   }

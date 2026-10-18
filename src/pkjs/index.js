@@ -1,3 +1,5 @@
+var i18n = require("./i18n");
+
 function getSettings() {
   var s = localStorage.getItem("memos_settings");
   if (!s) return null;
@@ -50,8 +52,19 @@ var PAGE_SIZE   = 50;
 var MAX_PAGES   = 4;
 var TIMEOUT_MS  = 15000;
 
-var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/* =========================================================
+ * Language
+ * ========================================================= */
+
+// "en" or "de", from the language setting or the watch language
+function currentLanguage() {
+  return i18n.effectiveLanguage((getSettings() || {}).language);
+}
+
+// Translates an English text right before it is sent to the watch
+function translate(text) {
+  return i18n.translate(text, currentLanguage());
+}
 
 /* =========================================================
  * Text helpers
@@ -77,31 +90,25 @@ function truncateUtf8(text, maxBytes) {
   return text;
 }
 
-function pad2(n) {
-  return n < 10 ? "0" + n : "" + n;
-}
-
 function formatDate(isoString) {
   if (!isoString) return "";
   var d = new Date(isoString);
   if (isNaN(d.getTime())) return "";
-  return MONTHS[d.getMonth()] + " " + d.getDate() + ", " +
-    pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+  return i18n.formatDate(d, currentLanguage());
 }
 
 /* =========================================================
  * Memo parser
  * ========================================================= */
 
-// Replace spoken keywords with markdown
+// Replace spoken keywords with markdown, in English and German
 function applyKeywords(text) {
   var content = text;
-  content = content.replace(/check box[\s,.]*/gi, "- [ ] ");
-  content = content.replace(/checkbox[\s,.]*/gi, "- [ ] ");
-  content = content.replace(/new line[\s,.]*/gi, "\n");
-  content = content.replace(/title big[\s,.]*/gi, "# ");
-  content = content.replace(/title medium[\s,.]*/gi, "## ");
-  content = content.replace(/title small[\s,.]*/gi, "### ");
+  content = content.replace(/(check ?box|kontrollkästchen)[\s,.]*/gi, "- [ ] ");
+  content = content.replace(/(new line|neue zeile)[\s,.]*/gi, "\n");
+  content = content.replace(/(title big|(überschrift|titel) groß)[\s,.]*/gi, "# ");
+  content = content.replace(/(title medium|(überschrift|titel) mittel)[\s,.]*/gi, "## ");
+  content = content.replace(/(title small|(überschrift|titel) klein)[\s,.]*/gi, "### ");
   return content.replace(/[ \t]+\n/g, "\n");
 }
 
@@ -111,7 +118,8 @@ function parseMemo(text, defaultTags) {
   var content = applyKeywords(text);
 
   /* ---- Extract spoken hashtags ---- */
-  var tagRegex = /hashtag\s+(\w+)/gi;
+  // a tag ends at a space or punctuation, so umlauts can be part of it
+  var tagRegex = /hashtag\s+([^\s,.!?;:]+)/gi;
   var match;
   while ((match = tagRegex.exec(text)) !== null) {
     tags.push("#" + match[1].toLowerCase());
@@ -158,7 +166,7 @@ function memoTitle(memo) {
     if (withoutTags !== "") line = withoutTags;
     if (line !== "") return truncateUtf8(line, MAX_TITLE_BYTES);
   }
-  return "(empty)";
+  return translate("(empty)");
 }
 
 function relationName(value) {
@@ -238,7 +246,7 @@ function markdownLines(content) {
 
 // Joins typed lines into the text sent to the watch
 function joinLines(lines) {
-  if (lines.length === 0) lines = ["p(empty)"];
+  if (lines.length === 0) lines = ["p" + translate("(empty)")];
   return truncateUtf8(lines.join("\n"), MAX_TEXT_BYTES);
 }
 
@@ -269,7 +277,7 @@ function findTasks(content) {
       tasks.push({
         line: lineIndex,
         done: m[2] !== " ",
-        text: truncateUtf8(withoutTags || text || "(empty)", MAX_TITLE_BYTES)
+        text: truncateUtf8(withoutTags || text || translate("(empty)"), MAX_TITLE_BYTES)
       });
     }
   });
@@ -423,7 +431,7 @@ function replyOk(req, fields) {
 
 function replyError(req, message) {
   console.log("Ostrakon: Request failed:", message);
-  reply(req, { "STATUS": 1, "TEXT": truncateUtf8(message, MAX_TITLE_BYTES) });
+  reply(req, { "STATUS": 1, "TEXT": truncateUtf8(translate(message), MAX_TITLE_BYTES) });
 }
 
 function utf8Length(text) {
@@ -447,7 +455,7 @@ function packItem(item) {
 function replyList(req, items, offline, hasMore) {
   var message = { "LIST_COUNT": items.length, "ITEM_FLAGS": hasMore ? 1 : 0,
                   "STATUS": 0 };
-  if (offline) message["TEXT"] = "Offline: cached memos";
+  if (offline) message["TEXT"] = translate("Offline: cached memos");
   var packed = [];
   var bytes = 0;
 
@@ -475,7 +483,8 @@ function replyList(req, items, offline, hasMore) {
 
 // A message for the watch outside of any request, shown as a toast
 function notifyWatch(text, success) {
-  enqueue({ "NOTICE": truncateUtf8(text, MAX_TITLE_BYTES), "STATUS": success ? 0 : 1 });
+  enqueue({ "NOTICE": truncateUtf8(translate(text), MAX_TITLE_BYTES),
+            "STATUS": success ? 0 : 1 });
 }
 
 /* =========================================================
@@ -698,7 +707,7 @@ function handleCreate(req) {
       var queue = loadQueue();
       queue.push({ content: content });
       saveQueue(queue);
-      replyOk(req, { "TEXT": "Offline: memo queued" });
+      replyOk(req, { "TEXT": translate("Offline: memo queued") });
       return;
     }
     if (err) {
@@ -762,7 +771,7 @@ function handleListTags(req) {
         return {
           id: tag,
           title: truncateUtf8("#" + tag, MAX_TITLE_BYTES),
-          subtitle: counts[tag] + (counts[tag] === 1 ? " memo" : " memos")
+          subtitle: translate(counts[tag] + (counts[tag] === 1 ? " memo" : " memos"))
         };
       }), offline);
     });
@@ -805,7 +814,7 @@ function handleListComments(req) {
     var comments = data.memos || [];
     replyOk(req, {
       "TEXT": comments.length > 0 ? joinLines(commentLines(comments))
-                                  : "pNo comments yet"
+                                  : "p" + translate("No comments yet")
     });
   });
 }
@@ -954,7 +963,7 @@ function handleTogglePin(req) {
         memo.pinned = pinned;
         replaceInCache(memo);
         replyOk(req, { "ITEM_FLAGS": pinned ? 1 : 0,
-                       "TEXT": pinned ? "Pinned" : "Unpinned" });
+                       "TEXT": translate(pinned ? "Pinned" : "Unpinned") });
       });
   });
 }
@@ -1013,7 +1022,8 @@ Pebble.addEventListener("appmessage", function (e) {
 // The watch keeps its own copy of settings it needs without the phone
 function sendWatchSettings() {
   var settings = getSettings() || {};
-  enqueue({ "VIBRATE": settings.vibrate === false ? 0 : 1 });
+  enqueue({ "VIBRATE": settings.vibrate === false ? 0 : 1,
+            "LANGUAGE": i18n.LANGUAGE_CODES[i18n.settingValue(settings.language)] });
 }
 
 // Tells the watch right away if the server or token do not work
@@ -1041,15 +1051,17 @@ Pebble.addEventListener("ready", function () {
 
 /* ---------- Settings page (Clay) ---------- */
 // The settings stay in "memos_settings"; Clay is only the form in front of
-// them, filled from them every time it opens.
+// them, filled from them every time it opens. It is built anew each time,
+// in the language that is current then.
 var clay = null;
 
-function getClay() {
-  if (!clay) {
-    var Clay = require("./vendor/clay");
-    clay = new Clay(require("./clay-config"), require("./clay-custom"),
-                    { autoHandleEvents: false });
-  }
+function createClay() {
+  var Clay = require("./vendor/clay");
+  var strings = i18n.pageStrings(currentLanguage());
+  clay = new Clay(require("./clay-config")(strings), require("./clay-custom"),
+                  { autoHandleEvents: false });
+  // Clay only fills meta on "ready", which it does not handle here
+  clay.meta.userData = { strings: strings };
   return clay;
 }
 
@@ -1061,27 +1073,29 @@ function clayValue(settings, key) {
 Pebble.addEventListener("showConfiguration", function() {
   console.log("Ostrakon: Opening config page");
   var current = getSettings() || {};
-  getClay().setSettings({
+  createClay().setSettings({
     "SETTING_URL": current.url || "",
     "SETTING_TOKEN": current.token || "",
     "SETTING_TAGS": current.tags !== undefined ? current.tags : DEFAULT_TAGS.join(" "),
     "SETTING_TODO_TAG": current.todoTag || "#" + DEFAULT_TODO_TAG,
-    "VIBRATE": current.vibrate !== false
+    "VIBRATE": current.vibrate !== false,
+    "SETTING_LANGUAGE": i18n.settingValue(current.language)
   });
-  Pebble.openURL(getClay().generateUrl());
+  Pebble.openURL(clay.generateUrl());
 });
 
 Pebble.addEventListener("webviewclosed", function(e) {
   if (!e.response) return;
 
   try {
-    var values = getClay().getSettings(e.response, false);
+    var values = (clay || createClay()).getSettings(e.response, false);
     var settings = {
       url: String(clayValue(values, "SETTING_URL") || "").trim(),
       token: String(clayValue(values, "SETTING_TOKEN") || "").trim(),
       tags: String(clayValue(values, "SETTING_TAGS") || "").trim(),
       todoTag: String(clayValue(values, "SETTING_TODO_TAG") || "").trim(),
-      vibrate: !!clayValue(values, "VIBRATE")
+      vibrate: !!clayValue(values, "VIBRATE"),
+      language: i18n.settingValue(clayValue(values, "SETTING_LANGUAGE"))
     };
     localStorage.setItem("memos_settings", JSON.stringify(settings));
     console.log("Ostrakon: Settings saved");

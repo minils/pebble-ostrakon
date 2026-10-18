@@ -1,4 +1,5 @@
 #include "memo_list.h"
+#include "i18n.h"
 #include "memo_actions.h"
 #include "remote_list.h"
 #include "ui.h"
@@ -50,22 +51,22 @@ static void push(CommAction action, const char *target, const char *text,
 }
 
 void memo_list_push_recent(void) {
-  push(CommActionListRecent, NULL, NULL, "No memos", NULL);
+  push(CommActionListRecent, NULL, NULL, tr("No memos"), NULL);
 }
 
 void memo_list_push_tag(const char *tag) {
-  push(CommActionListByTag, tag, NULL, "No memos", NULL);
+  push(CommActionListByTag, tag, NULL, tr("No memos"), NULL);
 }
 
 void memo_list_push_search(const char *query) {
   // the title bar shows what was searched for
   char title[COMM_TITLE_SIZE + 4];
   snprintf(title, sizeof(title), "\"%s\"", query);
-  push(CommActionSearch, NULL, query, "No matches", title);
+  push(CommActionSearch, NULL, query, tr("No matches"), title);
 }
 
 void memo_list_push_pinned(void) {
-  push(CommActionListPinned, NULL, NULL, "No pinned memos", NULL);
+  push(CommActionListPinned, NULL, NULL, tr("No pinned memos"), NULL);
 }
 
 void memo_list_remove(const char *memo_name) {

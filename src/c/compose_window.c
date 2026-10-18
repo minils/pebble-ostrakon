@@ -1,4 +1,5 @@
 #include "compose_window.h"
+#include "i18n.h"
 #include "actions.h"
 #include "comm.h"
 #include "comments_window.h"
@@ -55,7 +56,7 @@ static void dictation_callback(DictationSession *session,
     // no error message if the user cancelled the dictation
     if (status != DictationSessionStatusFailureTranscriptionRejected &&
         status != DictationSessionStatusFailureSystemAborted) {
-      toast_show("Dictation Failed", false);
+      toast_show(tr("Dictation Failed"), false);
     }
     return;
   }
@@ -67,7 +68,7 @@ static void dictation_callback(DictationSession *session,
   size_t separator_len = (s_message[0] != '\0') ? 1 : 0;
   if (strlen(s_message) + separator_len + strlen(transcription) >=
       sizeof(s_message)) {
-    toast_show("Memo too long", false);
+    toast_show(tr("Memo too long"), false);
     return;
   }
 
@@ -105,21 +106,21 @@ static void phone_unreachable(const char *message) {
     return;
   }
   if (drafts_save(s_draft_index, s_message) < 0) {
-    toast_show("Drafts full.\nSend or discard.", false);
+    toast_show(tr("Drafts full.\nSend or discard."), false);
     return;
   }
   close_window();
-  toast_show("Phone unreachable.\nSaved as draft.", false);
+  toast_show(tr("Phone unreachable.\nSaved as draft."), false);
 }
 
 static const char *success_message(void) {
   switch (s_mode) {
   case ComposeModeComment:
-    return "Comment added";
+    return tr("Comment added");
   case ComposeModeAppend:
-    return "Appended";
+    return tr("Appended");
   default:
-    return "Sent";
+    return tr("Sent");
   }
 }
 
@@ -128,7 +129,7 @@ static void send_handler(DictionaryIterator *iter, void *context) {
   s_sending = false;
 
   if (!iter) {
-    phone_unreachable("No response from phone");
+    phone_unreachable(tr("No response from phone"));
     return;
   }
   if (comm_response_failed(iter)) {
@@ -158,7 +159,7 @@ static void send_handler(DictionaryIterator *iter, void *context) {
 
 static void send(void) {
   if (ui_is_blank(s_message)) {
-    toast_show("Nothing to send", false);
+    toast_show(tr("Nothing to send"), false);
     return;
   }
 
@@ -167,12 +168,12 @@ static void send(void) {
                                                     : CommActionCreate;
   const char *target = s_mode == ComposeModeMemo ? NULL : s_target;
   if (!comm_request(action, target, s_message, send_handler, NULL)) {
-    phone_unreachable("Phone not connected");
+    phone_unreachable(tr("Phone not connected"));
     return;
   }
 
   s_sending = true;
-  text_view_set_text(&s_text_view, "Sending...");
+  text_view_set_text(&s_text_view, tr("Sending..."));
 }
 
 /* =================================================================== */
@@ -207,11 +208,11 @@ static void select_click_handler(ClickRecognizerRef ref, void *context) {
     return;
   }
 
-  static const ActionItem items[] = {
-      {.label = "Send", .id = ComposeActionSend},
-      {.label = "Dictate more", .id = ComposeActionDictate},
-      {.label = "Discard", .id = ComposeActionDiscard,
-       .confirm_label = "Yes, discard"},
+  const ActionItem items[] = {
+      {.label = tr("Send"), .id = ComposeActionSend},
+      {.label = tr("Dictate more"), .id = ComposeActionDictate},
+      {.label = tr("Discard"), .id = ComposeActionDiscard,
+       .confirm_label = tr("Yes, discard")},
   };
   actions_open(items, ARRAY_LENGTH(items), action_chosen, NULL);
 }
@@ -229,18 +230,18 @@ static void back_click_handler(ClickRecognizerRef ref, void *context) {
 
   if (s_mode != ComposeModeMemo) {
     close_window();
-    toast_show(s_mode == ComposeModeComment ? "Comment discarded"
-                                            : "Append discarded",
+    toast_show(s_mode == ComposeModeComment ? tr("Comment discarded")
+                                            : tr("Append discarded"),
                false);
     return;
   }
 
   if (drafts_save(s_draft_index, s_message) < 0) {
-    toast_show("Drafts full.\nSend or discard.", false);
+    toast_show(tr("Drafts full.\nSend or discard."), false);
     return;
   }
   close_window();
-  toast_show("Saved as draft", true);
+  toast_show(tr("Saved as draft"), true);
 }
 
 static void click_config_provider(void *context) {
@@ -254,9 +255,9 @@ static void click_config_provider(void *context) {
 
 static void window_load(Window *window) {
   text_view_create(&s_text_view, window,
-                   s_mode == ComposeModeComment  ? "Comment"
-                   : s_mode == ComposeModeAppend ? "Append"
-                                                 : "Draft",
+                   s_mode == ComposeModeComment  ? tr("Comment")
+                   : s_mode == ComposeModeAppend ? tr("Append")
+                                                 : tr("Draft"),
                    UI_TEXT_FONT_KEY, GTextAlignmentCenter,
                    click_config_provider);
   update_display();

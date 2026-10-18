@@ -118,7 +118,7 @@ function clayResponse(s) {
   return encodeURIComponent(JSON.stringify({
     SETTING_URL: { value: s.url }, SETTING_TOKEN: { value: s.token },
     SETTING_TAGS: { value: s.tags || '' }, SETTING_TODO_TAG: { value: s.todoTag || '' },
-    VIBRATE: { value: s.vibrate !== false }
+    VIBRATE: { value: s.vibrate !== false }, SETTING_LANGUAGE: { value: s.language || 'auto' }
   }));
 }
 
@@ -305,7 +305,9 @@ setTimeout(() => { console.error('Test timed out'); process.exit(1); }, 30000).u
   listeners.webviewclosed({ response: clayResponse({ url: 'x', token: 'y', vibrate: false }) });
   await new Promise(res => setTimeout(res, 100));
   let pushed = received.slice(before);
-  assert.deepStrictEqual(pushed.filter(m => 'VIBRATE' in m), [{ VIBRATE: 1 }, { VIBRATE: 0 }]);
+  // the language setting goes along: 0 = follow the watch
+  assert.deepStrictEqual(pushed.filter(m => 'VIBRATE' in m),
+    [{ VIBRATE: 1, LANGUAGE: 0 }, { VIBRATE: 0, LANGUAGE: 0 }]);
   assert.deepStrictEqual(pushed.find(m => 'NOTICE' in m), { NOTICE: 'Server not reachable', STATUS: 1 });
 
   const good = { url: `http://127.0.0.1:${port}`, token: 'tok', todoTag: '#home' };
@@ -415,7 +417,39 @@ setTimeout(() => { console.error('Test timed out'); process.exit(1); }, 30000).u
   assert.ok(page.includes('Ostrakon') && page.includes('Test connection'));
   assert.ok(page.includes(good.url) && page.includes('#home'));
   const saved = JSON.parse(store.memos_settings);
-  assert.deepStrictEqual(saved, { url: good.url, token: 'tok', tags: '', todoTag: '#home', vibrate: true });
+  assert.deepStrictEqual(saved, { url: good.url, token: 'tok', tags: '', todoTag: '#home', vibrate: true, language: 'auto' });
+
+  // German: chosen in the settings, or followed from the watch language
+  before = received.length;
+  listeners.webviewclosed({ response: clayResponse({ ...good, language: 'de' }) });
+  await new Promise(res => setTimeout(res, 100));
+  pushed = received.slice(before);
+  assert.deepStrictEqual(pushed.find(m => 'VIBRATE' in m), { VIBRATE: 1, LANGUAGE: 2 });
+  assert.deepStrictEqual(pushed.find(m => 'NOTICE' in m), { NOTICE: 'Mit Memos verbunden', STATUS: 0 });
+  r = await request(3);
+  assert.match(r.slice(1)[0].ITEM_SUBTITLE, /^\d+ Memos$/);
+  r = await request(2);
+  assert.match(r[1].ITEM_SUBTITLE, /^1\d\. Okt, \d\d:\d\d/);
+  r = await request(15, 'memos/m4');
+  assert.strictEqual(r[0].TEXT, 'pNoch keine Kommentare');
+  r = await request(5, 'memos/missing');
+  assert.deepStrictEqual([r[0].STATUS, r[0].TEXT], [1, 'Serverfehler 404']);
+  r = await request(1, null, 'Überschrift groß Einkauf neue Zeile Checkbox Milch Kontrollkästchen Brot. Hashtag Küche');
+  assert.strictEqual(r[0].STATUS, 0);
+  assert.strictEqual(created[created.length - 1].content, '# Einkauf\n- [ ] Milch - [ ] Brot.\n\n#pebble #küche');
+  listeners.showConfiguration({});
+  const germanPage = decodeURIComponent(openedUrls.pop().replace(/^data:text\/html;charset=utf-8,/, ''));
+  assert.ok(germanPage.includes('Verbindung testen') && germanPage.includes('Sprache'));
+  assert.ok(germanPage.includes('Test von dieser Seite nicht m'));
+
+  store.memos_settings = JSON.stringify({ ...good, language: 'auto' });
+  const watchInfo = Pebble.getActiveWatchInfo;
+  Pebble.getActiveWatchInfo = () => ({ ...watchInfo(), language: 'de_DE' });
+  r = await request(5, 'memos/missing');
+  assert.strictEqual(r[0].TEXT, 'Serverfehler 404');
+  Pebble.getActiveWatchInfo = watchInfo;
+  r = await request(5, 'memos/missing');
+  assert.strictEqual(r[0].TEXT, 'Server error 404');
 
   console.log('ALL OK');
   server.close();

@@ -1,5 +1,6 @@
 #include <pebble.h>
 #include "comm.h"
+#include "i18n.h"
 #include "compose_window.h"
 #include "drafts.h"
 #include "drafts_window.h"
@@ -32,27 +33,27 @@ static void get_row(uint16_t index, const char **title, const char **subtitle,
                     void *context) {
   switch (index) {
   case MainRowNew:
-    *title = "New";
-    *subtitle = "Dictate a memo";
+    *title = tr("New");
+    *subtitle = tr("Dictate a memo");
     break;
   case MainRowRecent:
-    *title = "Recent";
-    *subtitle = "Latest memos";
+    *title = tr("Recent");
+    *subtitle = tr("Latest memos");
     break;
   case MainRowPinned:
-    *title = "Pinned";
-    *subtitle = "Pinned memos";
+    *title = tr("Pinned");
+    *subtitle = tr("Pinned memos");
     break;
   case MainRowTags:
-    *title = "Tags";
-    *subtitle = "Memos by tag";
+    *title = tr("Tags");
+    *subtitle = tr("Memos by tag");
     break;
   case MainRowSearch:
-    *title = "Search";
-    *subtitle = "Dictate words to find";
+    *title = tr("Search");
+    *subtitle = tr("Dictate words to find");
     break;
   case MainRowDrafts:
-    *title = "Drafts";
+    *title = tr("Drafts");
     *subtitle = s_drafts_subtitle;
     break;
   }
@@ -84,9 +85,9 @@ static void select_row(uint16_t index, void *context) {
 static void appear(void *context) {
   int count = drafts_count();
   if (count == 0) {
-    snprintf(s_drafts_subtitle, sizeof(s_drafts_subtitle), "None saved");
+    snprintf(s_drafts_subtitle, sizeof(s_drafts_subtitle), "%s", tr("None saved"));
   } else {
-    snprintf(s_drafts_subtitle, sizeof(s_drafts_subtitle), "%d saved", count);
+    snprintf(s_drafts_subtitle, sizeof(s_drafts_subtitle), tr("%d saved"), count);
   }
 }
 
@@ -96,6 +97,7 @@ static void appear(void *context) {
 
 static void init(void) {
   settings_init();
+  i18n_init();
   comm_init();
   drafts_init();
 
@@ -143,11 +145,11 @@ static void deinit(void) {
   int32_t count = settings_get_glance_count();
   if (count >= 0) {
     if (count == 0) {
-      snprintf(s_glance_text, sizeof(s_glance_text), "No open todos");
+      snprintf(s_glance_text, sizeof(s_glance_text), "%s", tr("No open todos"));
     } else if (count == 1) {
-      snprintf(s_glance_text, sizeof(s_glance_text), "1 open todo");
+      snprintf(s_glance_text, sizeof(s_glance_text), "%s", tr("1 open todo"));
     } else {
-      snprintf(s_glance_text, sizeof(s_glance_text), "%d open todos",
+      snprintf(s_glance_text, sizeof(s_glance_text), tr("%d open todos"),
                (int)count);
     }
     app_glance_reload(glance_reload, NULL);

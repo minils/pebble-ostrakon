@@ -1,4 +1,5 @@
 #include "comments_window.h"
+#include "i18n.h"
 #include "comm.h"
 #include "compose_window.h"
 #include "memo_view.h"
@@ -27,7 +28,7 @@ static void comments_handler(DictionaryIterator *iter, void *context) {
   comm_finish();
   set_loading(false);
   if (!iter) {
-    show_message("No response from phone");
+    show_message(tr("No response from phone"));
   } else if (comm_response_failed(iter)) {
     show_message(comm_response_error(iter));
   } else {
@@ -41,7 +42,7 @@ static void load_comments(void) {
   set_loading(comm_request(CommActionListComments, s_name, NULL,
                            comments_handler, NULL));
   if (!s_loading) {
-    show_message("Phone not connected");
+    show_message(tr("Phone not connected"));
   }
 }
 
@@ -65,7 +66,7 @@ static void window_load(Window *window) {
   s_memo_view = memo_view_create(root, view_frame, click_config_provider,
                                  window);
 
-  s_title_bar = ui_title_bar_create(bounds, "Comments");
+  s_title_bar = ui_title_bar_create(bounds, tr("Comments"));
   layer_add_child(root, s_title_bar);
   s_select_hint = ui_select_hint_create(bounds);
   layer_add_child(root, s_select_hint);

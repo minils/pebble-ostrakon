@@ -1,4 +1,5 @@
 #include "drafts_window.h"
+#include "i18n.h"
 #include "actions.h"
 #include "compose_window.h"
 #include "drafts.h"
@@ -43,16 +44,16 @@ static void action_chosen(int id, void *context) {
   case DraftActionDelete:
     drafts_delete(s_selected);
     update_previews();
-    toast_show("Draft deleted", true);
+    toast_show(tr("Draft deleted"), true);
     break;
   }
 }
 
 static void select_row(uint16_t index, void *context) {
-  static const ActionItem items[] = {
-      {.label = "Open", .id = DraftActionOpen},
-      {.label = "Delete", .id = DraftActionDelete,
-       .confirm_label = "Yes, delete"},
+  const ActionItem items[] = {
+      {.label = tr("Open"), .id = DraftActionOpen},
+      {.label = tr("Delete"), .id = DraftActionDelete,
+       .confirm_label = tr("Yes, delete")},
   };
   s_selected = index;
   actions_open(items, ARRAY_LENGTH(items), action_chosen, NULL);
@@ -73,6 +74,6 @@ void drafts_window_push(void) {
           .unload = unload,
       },
       NULL);
-  list_window_set_status(s_window, "No drafts");
+  list_window_set_status(s_window, tr("No drafts"));
   list_window_push(s_window);
 }

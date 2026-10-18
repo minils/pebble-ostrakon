@@ -1,4 +1,5 @@
 #include "search.h"
+#include "i18n.h"
 #include "comm.h"
 #include "memo_list.h"
 #include "toast.h"
@@ -13,7 +14,7 @@ static void dictation_callback(DictationSession *session,
     // no error message if the user cancelled the dictation
     if (status != DictationSessionStatusFailureTranscriptionRejected &&
         status != DictationSessionStatusFailureSystemAborted) {
-      toast_show("Dictation Failed", false);
+      toast_show(tr("Dictation Failed"), false);
     }
     return;
   }
