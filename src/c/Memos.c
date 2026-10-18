@@ -16,6 +16,14 @@ enum {
 #define PERSIST_KEY_DRAFT_BASE 100
 #define DRAFT_CHUNK_SIZE PERSIST_DATA_MAX_LENGTH
 
+/* ---------- Display ---------- */
+// Larger displays (emery, gabbro) get a bigger font so text is not tiny
+#if PBL_DISPLAY_WIDTH >= 200
+#define MESSAGE_FONT_KEY FONT_KEY_GOTHIC_28_BOLD
+#else
+#define MESSAGE_FONT_KEY FONT_KEY_GOTHIC_24_BOLD
+#endif
+
 /* ---------- UI ---------- */
 static Window *s_main_window;
 static TextLayer *s_text_layer;
@@ -128,12 +136,13 @@ static void main_window_load(Window *window) {
   Layer *window_layer = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(window_layer);
 
-  s_text_layer =
-      text_layer_create(GRect(1, 0, bounds.size.w - 1, bounds.size.h * 4));
+  // keep text away from the curved edges on round displays
+  int16_t inset = PBL_IF_ROUND_ELSE(bounds.size.w / 8, 1);
+  s_text_layer = text_layer_create(
+      GRect(inset, 0, bounds.size.w - 2 * inset, bounds.size.h * 4));
 
   text_layer_set_text_alignment(s_text_layer, GTextAlignmentCenter);
-  text_layer_set_font(s_text_layer,
-                      fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
+  text_layer_set_font(s_text_layer, fonts_get_system_font(MESSAGE_FONT_KEY));
   text_layer_set_text(s_text_layer, "Press Select\nto Dictate");
 
   s_scroll_layer = scroll_layer_create(bounds);
