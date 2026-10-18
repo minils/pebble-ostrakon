@@ -1,4 +1,8 @@
-## Ostrakon
+<p align="center">
+  <img src="store/banner-720x320.png" alt="Ostrakon" width="720">
+</p>
+
+## <img src="store/icon-48.png" alt="" width="32" height="32" align="top"> Ostrakon
 
 A Pebble watch app for your self-hosted [Memos](https://github.com/usememos/memos) server: dictate new memos, browse and search the ones you have, tick off tasks and add comments, all from your wrist.
 
