@@ -61,4 +61,5 @@ The app has two parts: the watch app in C (`src/c`) and the phone part in Pebble
 
 * Build with the [Pebble SDK](https://developer.repebble.com): `pebble build`
 * Run the phone-side tests against a mock Memos server: `node test/pkjs.test.js`
+* The settings page is built with [Clay](https://github.com/pebble/clay) (MIT license), included in `src/pkjs/vendor`
 * GitHub Actions runs the tests and builds the app on every push; the `.pbw` can be downloaded from the run's artifacts and installed from the phone.

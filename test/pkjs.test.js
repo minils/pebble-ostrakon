@@ -73,18 +73,27 @@ const server = http.createServer((req, res) => {
 });
 
 /* ---------- PebbleKit JS stubs ---------- */
-const listeners = {};
+// events can have several listeners, e.g. Clay adds one for "ready"
+const handlers = {};
+const listeners = new Proxy({}, {
+  get: (_, name) => event => (handlers[name] || []).forEach(f => f(event)),
+});
 const received = [];
 let nackNext = false;
 const store = {};
+const openedUrls = [];
 global.localStorage = { getItem: k => store[k] ?? null, setItem: (k, v) => store[k] = String(v) };
 global.Pebble = {
-  addEventListener: (n, f) => listeners[n] = f,
+  addEventListener: (n, f) => (handlers[n] = handlers[n] || []).push(f),
+  getAccountToken: () => 'account',
+  getWatchToken: () => 'watch',
+  getActiveWatchInfo: () => ({ platform: 'emery', model: 'pebble_time_2', language: 'en_US', firmware: { major: 4, minor: 4, patch: 0, suffix: '' } }),
+  platform: 'android',
   sendAppMessage: (msg, ok, fail) => setTimeout(() => {
     if (nackNext) { nackNext = false; return fail({}); }
     received.push(msg); ok({});
   }, 1),
-  openURL: () => {},
+  openURL: url => { openedUrls.push(url); },
 };
 global.XMLHttpRequest = class {
   open(method, url) { this.method = method; this.url = url; this.headers = {}; }
@@ -95,9 +104,24 @@ global.XMLHttpRequest = class {
       .catch(() => this.onerror());
   }
 };
+// the Pebble build provides the message_keys module, which Clay loads
+const Module = require('module');
+const originalLoad = Module._load;
+Module._load = function (request, ...rest) {
+  return request === 'message_keys' ? {} : originalLoad.call(this, request, ...rest);
+};
 require(path.join(__dirname, '..', 'src', 'pkjs', 'index.js'));
 
 let reqId = 0;
+// What the Clay settings page sends back when it is saved
+function clayResponse(s) {
+  return encodeURIComponent(JSON.stringify({
+    SETTING_URL: { value: s.url }, SETTING_TOKEN: { value: s.token },
+    SETTING_TAGS: { value: s.tags || '' }, SETTING_TODO_TAG: { value: s.todoTag || '' },
+    VIBRATE: { value: s.vibrate !== false }
+  }));
+}
+
 // List items arrive packed into few messages; unpack them into one object
 // per item, checking the packing on the way
 function decodeItems(msgs) {
@@ -278,7 +302,7 @@ setTimeout(() => { console.error('Test timed out'); process.exit(1); }, 30000).u
   // Saving settings also tests the connection.
   let before = received.length;
   listeners.ready({});
-  listeners.webviewclosed({ response: encodeURIComponent(JSON.stringify({ url: 'x', token: 'y', vibrate: false })) });
+  listeners.webviewclosed({ response: clayResponse({ url: 'x', token: 'y', vibrate: false }) });
   await new Promise(res => setTimeout(res, 100));
   let pushed = received.slice(before);
   assert.deepStrictEqual(pushed.filter(m => 'VIBRATE' in m), [{ VIBRATE: 1 }, { VIBRATE: 0 }]);
@@ -287,7 +311,7 @@ setTimeout(() => { console.error('Test timed out'); process.exit(1); }, 30000).u
   const good = { url: `http://127.0.0.1:${port}`, token: 'tok', todoTag: '#home' };
   const notice = async settings => {
     const start = received.length;
-    listeners.webviewclosed({ response: encodeURIComponent(JSON.stringify(settings)) });
+    listeners.webviewclosed({ response: clayResponse(settings) });
     await new Promise(res => setTimeout(res, 100));
     return received.slice(start).find(m => 'NOTICE' in m);
   };
@@ -383,6 +407,15 @@ setTimeout(() => { console.error('Test timed out'); process.exit(1); }, 30000).u
   assert.deepStrictEqual(created.slice(createdBefore).map(c => c.content.split('\n')[0]), ['written offline', 'also offline']);
   assert.deepStrictEqual(JSON.parse(localStorage.getItem('memos_queue')), []);
   assert.deepStrictEqual(received.slice(before).find(m => 'NOTICE' in m), { NOTICE: '2 queued memos sent', STATUS: 0 });
+
+  // the settings page is Clay's, filled with the stored settings, and
+  // saving it stores them in the app's own format
+  listeners.showConfiguration({});
+  const page = decodeURIComponent(openedUrls.pop().replace(/^data:text\/html;charset=utf-8,/, ''));
+  assert.ok(page.includes('Ostrakon') && page.includes('Test connection'));
+  assert.ok(page.includes(good.url) && page.includes('#home'));
+  const saved = JSON.parse(store.memos_settings);
+  assert.deepStrictEqual(saved, { url: good.url, token: 'tok', tags: '', todoTag: '#home', vibrate: true });
 
   console.log('ALL OK');
   server.close();

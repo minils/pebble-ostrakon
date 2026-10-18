@@ -1039,20 +1039,50 @@ Pebble.addEventListener("ready", function () {
   scheduleGlanceUpdate(GLANCE_DELAY_MS);
 });
 
+/* ---------- Settings page (Clay) ---------- */
+// The settings stay in "memos_settings"; Clay is only the form in front of
+// them, filled from them every time it opens.
+var clay = null;
+
+function getClay() {
+  if (!clay) {
+    var Clay = require("./vendor/clay");
+    clay = new Clay(require("./clay-config"), require("./clay-custom"),
+                    { autoHandleEvents: false });
+  }
+  return clay;
+}
+
+function clayValue(settings, key) {
+  var item = settings[key];
+  return item !== null && typeof item === "object" ? item.value : item;
+}
+
 Pebble.addEventListener("showConfiguration", function() {
   console.log("Ostrakon: Opening config page");
-  var configHtml = require("./config");
   var current = getSettings() || {};
-  Pebble.openURL("data:text/html;charset=utf-8," +
-    encodeURIComponent(configHtml) + "#" +
-    encodeURIComponent(JSON.stringify(current)));
+  getClay().setSettings({
+    "SETTING_URL": current.url || "",
+    "SETTING_TOKEN": current.token || "",
+    "SETTING_TAGS": current.tags !== undefined ? current.tags : DEFAULT_TAGS.join(" "),
+    "SETTING_TODO_TAG": current.todoTag || "#" + DEFAULT_TODO_TAG,
+    "VIBRATE": current.vibrate !== false
+  });
+  Pebble.openURL(getClay().generateUrl());
 });
 
 Pebble.addEventListener("webviewclosed", function(e) {
   if (!e.response) return;
 
   try {
-    var settings = JSON.parse(decodeURIComponent(e.response));
+    var values = getClay().getSettings(e.response, false);
+    var settings = {
+      url: String(clayValue(values, "SETTING_URL") || "").trim(),
+      token: String(clayValue(values, "SETTING_TOKEN") || "").trim(),
+      tags: String(clayValue(values, "SETTING_TAGS") || "").trim(),
+      todoTag: String(clayValue(values, "SETTING_TODO_TAG") || "").trim(),
+      vibrate: !!clayValue(values, "VIBRATE")
+    };
     localStorage.setItem("memos_settings", JSON.stringify(settings));
     console.log("Ostrakon: Settings saved");
     sendWatchSettings();
