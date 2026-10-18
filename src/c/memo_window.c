@@ -7,6 +7,7 @@
 static Window *s_window;
 static Layer *s_title_bar;
 static Layer *s_select_hint;
+static Layer *s_loading_layer;
 static MemoView *s_memo_view;
 static char s_name[COMM_ID_SIZE];
 static char s_content[COMM_TEXT_SIZE];
@@ -17,9 +18,14 @@ static void show_message(const char *message) {
   memo_view_set_message(s_memo_view, s_content);
 }
 
+static void set_loading(bool loading) {
+  s_loading = loading;
+  ui_loading_layer_set_active(s_loading_layer, loading);
+}
+
 static void content_handler(DictionaryIterator *iter, void *context) {
   comm_finish();
-  s_loading = false;
+  set_loading(false);
   if (!iter) {
     show_message("No response from phone");
   } else if (comm_response_failed(iter)) {
@@ -42,8 +48,9 @@ static void click_config_provider(void *context) {
 }
 
 static void load_content(void) {
-  show_message("Loading...");
-  s_loading = comm_request(CommActionGet, s_name, NULL, content_handler, NULL);
+  show_message("");
+  set_loading(
+      comm_request(CommActionGet, s_name, NULL, content_handler, NULL));
   if (!s_loading) {
     show_message("Phone not connected");
   }
@@ -63,6 +70,8 @@ static void window_load(Window *window) {
   layer_add_child(root, s_title_bar);
   s_select_hint = ui_select_hint_create(bounds);
   layer_add_child(root, s_select_hint);
+  s_loading_layer = ui_loading_layer_create(view_frame);
+  layer_add_child(root, s_loading_layer);
 
   load_content();
 }
@@ -73,6 +82,7 @@ static void window_unload(Window *window) {
     comm_finish();
     s_loading = false;
   }
+  ui_loading_layer_destroy(s_loading_layer);
   layer_destroy(s_select_hint);
   layer_destroy(s_title_bar);
   memo_view_destroy(s_memo_view);

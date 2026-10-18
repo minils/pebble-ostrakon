@@ -29,6 +29,18 @@ Layer *ui_title_bar_create(GRect window_bounds, const char *title);
 // pressing select does something
 Layer *ui_select_hint_create(GRect window_bounds);
 
+// Three dots, one highlighted per animation frame, centered on center.
+// on_highlight draws them for a highlighted menu row.
+void ui_draw_loading_dots(GContext *ctx, GPoint center, int frame,
+                          bool on_highlight);
+
+// A layer showing animated loading dots while active, hidden otherwise
+Layer *ui_loading_layer_create(GRect frame);
+void ui_loading_layer_set_active(Layer *layer, bool active);
+void ui_loading_layer_destroy(Layer *layer);
+
+#define UI_LOADING_FRAME_MS 300
+
 // Short, soft vibration if enabled in the settings
 void ui_vibrate(bool success);
 

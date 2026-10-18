@@ -91,6 +91,22 @@ global.XMLHttpRequest = class {
 require(path.join(__dirname, '..', 'src', 'pkjs', 'index.js'));
 
 let reqId = 0;
+// List items arrive packed into few messages; unpack them into one object
+// per item, checking the packing on the way
+function decodeItems(msgs) {
+  const items = [];
+  for (const m of msgs) {
+    if (m.ITEMS === undefined) continue;
+    assert.strictEqual(m.ITEM_INDEX, items.length);
+    assert.ok(Buffer.byteLength(m.ITEMS) <= 1300);
+    for (const record of m.ITEMS.split('\x1e')) {
+      const [id, title, subtitle, flags] = record.split('\x1f');
+      items.push({ ITEM_INDEX: items.length, ITEM_ID: id, ITEM_TITLE: title, ITEM_SUBTITLE: subtitle, ITEM_FLAGS: +flags });
+    }
+  }
+  return items;
+}
+
 function request(action, target, text, offset) {
   const id = ++reqId;
   const before = received.length;
@@ -100,8 +116,9 @@ function request(action, target, text, offset) {
       const msgs = received.slice(before).filter(m => m.REQUEST_ID === id);
       const head = msgs[0];
       if (!head) return;
-      if (head.STATUS !== 0 || head.LIST_COUNT === undefined || msgs.length === head.LIST_COUNT + 1) {
-        clearInterval(t); resolve(msgs);
+      const items = decodeItems(msgs);
+      if (head.STATUS !== 0 || head.LIST_COUNT === undefined || items.length === head.LIST_COUNT) {
+        clearInterval(t); resolve([head, ...items]);
       }
     }, 5);
   });
@@ -277,6 +294,8 @@ setTimeout(() => { console.error('Test timed out'); process.exit(1); }, 30000).u
   const firstPage = r.slice(1).map(m => m.ITEM_ID);
   r = await request(2, null, null, 20);
   assert.deepStrictEqual([r[0].LIST_COUNT, r[0].ITEM_FLAGS], [20, 1]);
+  // 20 items need only a few messages
+  assert.ok(received.filter(m => m.REQUEST_ID === reqId).length <= 3);
   assert.deepStrictEqual(r.slice(1).map(m => m.ITEM_INDEX), [...Array(20).keys()]);
   assert.ok(r.slice(1).every(m => !firstPage.includes(m.ITEM_ID)));
   r = await request(2, null, null, 60);
@@ -324,7 +343,8 @@ setTimeout(() => { console.error('Test timed out'); process.exit(1); }, 30000).u
   // glance: open tasks of all memos with the todo tag from the settings
   before = received.length;
   listeners.ready({});
-  await new Promise(res => setTimeout(res, 300));
+  // the glance update waits a moment after start
+  await new Promise(res => setTimeout(res, 5400));
   const glance = received.slice(before).find(m => 'GLANCE_COUNT' in m);
   const expectedOpen = memos.filter(m => !m.parent && m.state !== 'ARCHIVED' && (m.tags || []).includes('home'))
     .reduce((n, m) => n + (m.content.match(/^- \[ \]/gm) || []).length, 0);

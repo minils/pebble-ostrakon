@@ -23,3 +23,6 @@ void list_window_push(ListWindow *list);
 void list_window_remove(ListWindow *list);
 void list_window_reload(ListWindow *list);
 void list_window_set_status(ListWindow *list, const char *status);
+
+// Shows animated loading dots instead of the status or after the rows
+void list_window_set_loading(ListWindow *list, bool loading);

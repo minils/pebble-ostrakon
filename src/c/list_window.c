@@ -15,6 +15,12 @@ struct ListWindow {
   ListWindowCallbacks callbacks;
   void *context;
   char status[64];
+  // while loading, an empty list shows animated dots instead of rows and
+  // a filled list gets an extra row with the dots
+  bool loading;
+  Layer *loading_layer;
+  AppTimer *loading_timer;
+  int loading_frame;
 };
 
 /* =================================================================== */
@@ -25,14 +31,24 @@ static uint16_t get_num_rows(MenuLayer *menu_layer, uint16_t section_index,
                              void *data) {
   ListWindow *list = data;
   uint16_t count = list->callbacks.get_count(list->context);
-  return count > 0 ? count : 1; // one row for the status text
+  if (count == 0) {
+    return list->loading ? 0 : 1; // one row for the status text
+  }
+  return count + (list->loading ? 1 : 0);
 }
 
 static void draw_row(GContext *ctx, const Layer *cell_layer,
                      MenuIndex *cell_index, void *data) {
   ListWindow *list = data;
-  if (list->callbacks.get_count(list->context) == 0) {
+  uint16_t count = list->callbacks.get_count(list->context);
+  if (count == 0) {
     menu_cell_basic_draw(ctx, cell_layer, list->status, NULL, NULL);
+    return;
+  }
+  if (cell_index->row >= count) {
+    GRect bounds = layer_get_bounds(cell_layer);
+    ui_draw_loading_dots(ctx, grect_center_point(&bounds), list->loading_frame,
+                         menu_cell_layer_is_highlighted(cell_layer));
     return;
   }
 
@@ -96,6 +112,12 @@ static void window_load(Window *window) {
                                   UI_HIGHLIGHT_TEXT_COLOR);
   menu_layer_set_click_config_onto_window(list->menu_layer, window);
   layer_add_child(root, menu_layer_get_layer(list->menu_layer));
+
+  list->loading_layer = ui_loading_layer_create(layer_get_bounds(root));
+  layer_add_child(root, list->loading_layer);
+  ui_loading_layer_set_active(list->loading_layer,
+                              list->loading &&
+                                  list->callbacks.get_count(list->context) == 0);
 }
 
 static void window_appear(Window *window) {
@@ -108,7 +130,16 @@ static void window_appear(Window *window) {
 
 static void window_unload(Window *window) {
   ListWindow *list = window_get_user_data(window);
+  if (list->loading_timer) {
+    app_timer_cancel(list->loading_timer);
+    list->loading_timer = NULL;
+  }
+  ui_loading_layer_destroy(list->loading_layer);
   menu_layer_destroy(list->menu_layer);
+  // the unload callback may still end a request and update the loading
+  // state, which must not touch the destroyed layers
+  list->loading_layer = NULL;
+  list->menu_layer = NULL;
   if (list->callbacks.unload) {
     list->callbacks.unload(list->context);
   }
@@ -143,6 +174,36 @@ void list_window_reload(ListWindow *list) {
   if (list->menu_layer) {
     menu_layer_reload_data(list->menu_layer);
   }
+  if (list->loading_layer) {
+    // the dots move into a row once the first items are there
+    ui_loading_layer_set_active(list->loading_layer,
+                                list->loading &&
+                                    list->callbacks.get_count(list->context) ==
+                                        0);
+  }
+}
+
+// animates the dots in the loading row
+static void loading_tick(void *context) {
+  ListWindow *list = context;
+  list->loading_frame++;
+  if (list->menu_layer && list->callbacks.get_count(list->context) > 0) {
+    menu_layer_reload_data(list->menu_layer);
+  }
+  list->loading_timer =
+      app_timer_register(UI_LOADING_FRAME_MS, loading_tick, list);
+}
+
+void list_window_set_loading(ListWindow *list, bool loading) {
+  list->loading = loading;
+  if (loading && !list->loading_timer && list->menu_layer) {
+    list->loading_timer =
+        app_timer_register(UI_LOADING_FRAME_MS, loading_tick, list);
+  } else if (!loading && list->loading_timer) {
+    app_timer_cancel(list->loading_timer);
+    list->loading_timer = NULL;
+  }
+  list_window_reload(list);
 }
 
 void list_window_set_status(ListWindow *list, const char *status) {

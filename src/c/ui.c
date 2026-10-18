@@ -57,6 +57,87 @@ Layer *ui_select_hint_create(GRect window_bounds) {
 }
 
 /* =================================================================== */
+/*                          LOADING ANIMATION                          */
+/* =================================================================== */
+
+#if PBL_DISPLAY_WIDTH >= 200
+#define LOADING_DOT_RADIUS 5
+#define LOADING_DOT_SPACING 18
+#else
+#define LOADING_DOT_RADIUS 4
+#define LOADING_DOT_SPACING 14
+#endif
+
+void ui_draw_loading_dots(GContext *ctx, GPoint center, int frame,
+                          bool on_highlight) {
+  for (int i = 0; i < 3; i++) {
+    GPoint dot = GPoint(center.x + (i - 1) * LOADING_DOT_SPACING, center.y);
+    bool active = i == frame % 3;
+#ifdef PBL_COLOR
+    GColor active_color = on_highlight ? GColorWhite : UI_HIGHLIGHT_COLOR;
+    GColor idle_color = on_highlight ? GColorLightGray : GColorLightGray;
+    graphics_context_set_fill_color(ctx, active ? active_color : idle_color);
+    graphics_fill_circle(ctx, dot, LOADING_DOT_RADIUS);
+#else
+    GColor color = on_highlight ? GColorWhite : GColorBlack;
+    graphics_context_set_fill_color(ctx, color);
+    graphics_context_set_stroke_color(ctx, color);
+    if (active) {
+      graphics_fill_circle(ctx, dot, LOADING_DOT_RADIUS);
+    } else {
+      graphics_draw_circle(ctx, dot, LOADING_DOT_RADIUS - 1);
+    }
+#endif
+  }
+}
+
+typedef struct {
+  AppTimer *timer;
+  int frame;
+} LoadingData;
+
+static void loading_update(Layer *layer, GContext *ctx) {
+  LoadingData *data = layer_get_data(layer);
+  GRect bounds = layer_get_bounds(layer);
+  ui_draw_loading_dots(ctx, grect_center_point(&bounds), data->frame, false);
+}
+
+static void loading_tick(void *context) {
+  Layer *layer = context;
+  LoadingData *data = layer_get_data(layer);
+  data->frame++;
+  layer_mark_dirty(layer);
+  data->timer = app_timer_register(UI_LOADING_FRAME_MS, loading_tick, layer);
+}
+
+Layer *ui_loading_layer_create(GRect frame) {
+  Layer *layer = layer_create_with_data(frame, sizeof(LoadingData));
+  LoadingData *data = layer_get_data(layer);
+  data->timer = NULL;
+  data->frame = 0;
+  layer_set_update_proc(layer, loading_update);
+  layer_set_hidden(layer, true);
+  return layer;
+}
+
+void ui_loading_layer_set_active(Layer *layer, bool active) {
+  LoadingData *data = layer_get_data(layer);
+  layer_set_hidden(layer, !active);
+  if (active && !data->timer) {
+    data->frame = 0;
+    data->timer = app_timer_register(UI_LOADING_FRAME_MS, loading_tick, layer);
+  } else if (!active && data->timer) {
+    app_timer_cancel(data->timer);
+    data->timer = NULL;
+  }
+}
+
+void ui_loading_layer_destroy(Layer *layer) {
+  ui_loading_layer_set_active(layer, false);
+  layer_destroy(layer);
+}
+
+/* =================================================================== */
 /*                          VIBRATION                                  */
 /* =================================================================== */
 

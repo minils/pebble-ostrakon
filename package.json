@@ -32,13 +32,12 @@
       "TEXT",
       "ITEM_ID",
       "ITEM_INDEX",
-      "ITEM_TITLE",
-      "ITEM_SUBTITLE",
       "LIST_COUNT",
       "VIBRATE",
       "ITEM_FLAGS",
       "NOTICE",
-      "GLANCE_COUNT"
+      "GLANCE_COUNT",
+      "ITEMS"
     ],
     "resources": {
       "media": [{

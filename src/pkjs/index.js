@@ -35,7 +35,12 @@ var CACHE_KEY          = "memos_cache";
 var QUEUE_KEY          = "memos_queue";
 var DEFAULT_TODO_TAG   = "todo";
 var MAX_CACHED_MEMOS   = 200;
-var MAX_CACHED_CONTENT = 4000;
+// the watch shows at most MAX_TEXT_BYTES, so more is not worth caching
+var MAX_CACHED_CONTENT = 2000;
+// list items are packed into messages of up to this many bytes
+var MAX_BATCH_BYTES    = 1200;
+// the glance update waits, so it does not slow down the first list
+var GLANCE_DELAY_MS    = 5000;
 
 var PAGE_SIZE   = 50;
 var MAX_PAGES   = 4;
@@ -401,20 +406,51 @@ function replyError(req, message) {
   reply(req, { "STATUS": 1, "TEXT": truncateUtf8(message, MAX_TITLE_BYTES) });
 }
 
-// hasMore marks that another page can be requested
-function replyList(req, items, offline, hasMore) {
-  var head = { "LIST_COUNT": items.length, "ITEM_FLAGS": hasMore ? 1 : 0 };
-  if (offline) head["TEXT"] = "Offline: cached memos";
-  replyOk(req, head);
-  for (var i = 0; i < items.length; i++) {
-    reply(req, {
-      "ITEM_INDEX": i,
-      "ITEM_ID": truncateUtf8(items[i].id, MAX_ID_BYTES),
-      "ITEM_TITLE": items[i].title,
-      "ITEM_SUBTITLE": items[i].subtitle,
-      "ITEM_FLAGS": items[i].flags || 0
-    });
+function utf8Length(text) {
+  return unescape(encodeURIComponent(text)).length;
+}
+
+// One item as "id US title US subtitle US flags"; the separators cannot
+// appear in the fields
+function packItem(item) {
+  function field(text, maxBytes) {
+    return truncateUtf8((text || "").replace(/[\x1e\x1f]/g, " "), maxBytes);
   }
+  return [field(item.id, MAX_ID_BYTES), field(item.title, MAX_TITLE_BYTES),
+          field(item.subtitle, MAX_SUBTITLE_BYTES), String(item.flags || 0)]
+    .join("\x1f");
+}
+
+// Sends the items packed into as few messages as possible, since every
+// message costs a round trip to the watch. The first message also carries
+// the item count; hasMore marks that another page can be requested.
+function replyList(req, items, offline, hasMore) {
+  var message = { "LIST_COUNT": items.length, "ITEM_FLAGS": hasMore ? 1 : 0,
+                  "STATUS": 0 };
+  if (offline) message["TEXT"] = "Offline: cached memos";
+  var packed = [];
+  var bytes = 0;
+
+  function flush() {
+    if (packed.length > 0) {
+      message["ITEM_INDEX"] = index - packed.length;
+      message["ITEMS"] = packed.join("\x1e");
+    }
+    reply(req, message);
+    message = {};
+    packed = [];
+    bytes = 0;
+  }
+
+  var index = 0;
+  for (; index < items.length; index++) {
+    var record = packItem(items[index]);
+    var size = utf8Length(record) + 1;
+    if (packed.length > 0 && bytes + size > MAX_BATCH_BYTES) flush();
+    packed.push(record);
+    bytes += size;
+  }
+  flush();
 }
 
 // A message for the watch outside of any request, shown as a toast
@@ -611,12 +647,12 @@ function updateGlance() {
 var glanceTimer = null;
 
 // Several changes in a row only trigger one update
-function scheduleGlanceUpdate() {
+function scheduleGlanceUpdate(delay) {
   if (glanceTimer) clearTimeout(glanceTimer);
   glanceTimer = setTimeout(function () {
     glanceTimer = null;
     updateGlance();
-  }, 2000);
+  }, delay || 2000);
 }
 
 /* =========================================================
@@ -719,7 +755,14 @@ function commentLines(comments) {
 }
 
 function handleGet(req) {
-  apiRequest("GET", req.target, null, function (err, memo) {
+  // memo and comments are loaded at the same time
+  var memoResult = null;
+  var comments = null;
+
+  function done() {
+    if (!memoResult || comments === null) return;
+    var err = memoResult.err;
+    var memo = memoResult.memo;
     if (err) {
       // comments are not cached, so offline only the memo is shown
       memo = isOfflineError(err) ? findInCache(req.target) : null;
@@ -728,11 +771,17 @@ function handleGet(req) {
       return;
     }
     var lines = markdownLines(memo.content || "");
-    apiRequest("GET", req.target + "/comments", null, function (commentErr, data) {
-      var comments = (!commentErr && data.memos) || [];
-      if (comments.length > 0) lines = lines.concat(commentLines(comments));
-      replyOk(req, { "TEXT": joinLines(lines) });
-    });
+    if (comments.length > 0) lines = lines.concat(commentLines(comments));
+    replyOk(req, { "TEXT": joinLines(lines) });
+  }
+
+  apiRequest("GET", req.target, null, function (err, memo) {
+    memoResult = { err: err, memo: memo };
+    done();
+  });
+  apiRequest("GET", req.target + "/comments", null, function (err, data) {
+    comments = (!err && data.memos) || [];
+    done();
   });
 }
 
@@ -961,7 +1010,7 @@ Pebble.addEventListener("ready", function () {
   console.log("Memos: PebbleKit JS ready");
   sendWatchSettings();
   flushQueue();
-  updateGlance();
+  scheduleGlanceUpdate(GLANCE_DELAY_MS);
 });
 
 Pebble.addEventListener("showConfiguration", function() {
