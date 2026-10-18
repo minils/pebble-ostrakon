@@ -42,7 +42,7 @@ Layer *ui_title_bar_create(GRect window_bounds, const char *title) {
 
 static void select_hint_update(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
-  graphics_context_set_fill_color(ctx, UI_HIGHLIGHT_COLOR);
+  graphics_context_set_fill_color(ctx, GColorBlack);
   // only the left half of the circle is inside the layer
   graphics_fill_circle(ctx, GPoint(bounds.size.w, bounds.size.h / 2),
                        UI_SELECT_HINT_RADIUS);
