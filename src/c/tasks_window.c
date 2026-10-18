@@ -7,19 +7,17 @@
 #define TASKS_MAX 30
 #define TASK_DONE 1
 
+// rows fit two lines of text
 #if PBL_DISPLAY_WIDTH >= 200
-#define TITLE_FONT FONT_KEY_GOTHIC_24_BOLD
-#define DONE_TITLE_FONT FONT_KEY_GOTHIC_24
-#define SUBTITLE_FONT FONT_KEY_GOTHIC_18
-#define CELL_HEIGHT 52
+#define TASK_FONT FONT_KEY_GOTHIC_24
+#define LINE_HEIGHT 26
 #define CHECKBOX_SIZE 16
 #else
-#define TITLE_FONT FONT_KEY_GOTHIC_18_BOLD
-#define DONE_TITLE_FONT FONT_KEY_GOTHIC_18
-#define SUBTITLE_FONT FONT_KEY_GOTHIC_14
-#define CELL_HEIGHT 44
+#define TASK_FONT FONT_KEY_GOTHIC_18
+#define LINE_HEIGHT 20
 #define CHECKBOX_SIZE 12
 #endif
+#define CELL_HEIGHT (2 * LINE_HEIGHT + 6)
 
 #define MUTED_COLOR PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack)
 
@@ -29,7 +27,9 @@ static RemoteList s_list = {
     .capacity = TASKS_MAX,
     .empty_text = "No tasks",
 };
+static char s_memo_name[COMM_ID_SIZE];
 static int s_toggling = -1;
+static bool s_changed;
 
 /* =================================================================== */
 /*                          DRAWING                                    */
@@ -63,21 +63,27 @@ static void draw_row(GContext *ctx, const Layer *cell_layer, uint16_t index,
   int16_t x = PBL_IF_ROUND_ELSE(bounds.size.w / 8, 6);
   int16_t text_x = x + CHECKBOX_SIZE + 6;
   int16_t text_w = bounds.size.w - text_x - PBL_IF_ROUND_ELSE(x, 4);
-  int16_t title_h = CELL_HEIGHT * 11 / 20;
+  GFont font = fonts_get_system_font(TASK_FONT);
 
+  // center short tasks vertically, longer ones use both lines
+  int16_t text_h = graphics_text_layout_get_content_size(
+                       item->title, font, GRect(0, 0, text_w, 2 * LINE_HEIGHT),
+                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft)
+                       .h;
+  if (text_h > 2 * LINE_HEIGHT) {
+    text_h = 2 * LINE_HEIGHT;
+  }
+  int16_t text_y = (bounds.size.h - text_h) / 2 - 3;
+
+  // the checkbox sits next to the first line
   draw_checkbox(ctx,
-                GRect(x, (title_h - CHECKBOX_SIZE) / 2 + 3, CHECKBOX_SIZE,
-                      CHECKBOX_SIZE),
+                GRect(x, text_y + 3 + (LINE_HEIGHT - CHECKBOX_SIZE) / 2 + 1,
+                      CHECKBOX_SIZE, CHECKBOX_SIZE),
                 done, color);
 
   graphics_context_set_text_color(ctx, color);
-  graphics_draw_text(ctx, item->title,
-                     fonts_get_system_font(done ? DONE_TITLE_FONT : TITLE_FONT),
-                     GRect(text_x, -2, text_w, title_h),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft,
-                     NULL);
-  graphics_draw_text(ctx, item->subtitle, fonts_get_system_font(SUBTITLE_FONT),
-                     GRect(text_x, title_h - 4, text_w, CELL_HEIGHT - title_h),
+  graphics_draw_text(ctx, item->title, font,
+                     GRect(text_x, text_y, text_w, 2 * LINE_HEIGHT + 4),
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft,
                      NULL);
 }
@@ -102,6 +108,7 @@ static void toggle_handler(DictionaryIterator *iter, void *context) {
                false);
   } else {
     item->flags = comm_get_int(iter, MESSAGE_KEY_ITEM_FLAGS, item->flags);
+    s_changed = true;
     ui_vibrate(true);
   }
   list_window_reload(s_list.window);
@@ -126,22 +133,6 @@ static void select_row(uint16_t index, void *context) {
   list_window_reload(s_list.window);
 }
 
-static void select_long_row(uint16_t index, void *context) {
-  if (s_toggling >= 0) {
-    return;
-  }
-  remote_list_cancel(&s_list);
-
-  // task ids are "<memo name>#<task index>"
-  char name[COMM_ID_SIZE];
-  ui_copy_truncated(name, s_items[index].id, sizeof(name));
-  char *separator = strrchr(name, '#');
-  if (separator) {
-    *separator = '\0';
-  }
-  memo_window_push(name);
-}
-
 /* =================================================================== */
 /*                          WINDOW                                     */
 /* =================================================================== */
@@ -152,25 +143,32 @@ static void unload(void *context) {
   if (s_toggling >= 0) {
     comm_finish();
     s_toggling = -1;
+    s_changed = true;
   }
   s_list.window = NULL;
+
+  // the memo window below still shows the old checkboxes
+  if (s_changed) {
+    memo_window_reload(s_memo_name);
+  }
 }
 
-void tasks_window_push(void) {
+void tasks_window_push(const char *memo_name) {
   if (s_list.window) {
     return;
   }
+  ui_copy_truncated(s_memo_name, memo_name, sizeof(s_memo_name));
+  s_changed = false;
   s_list.window = list_window_create(
       (ListWindowCallbacks){
           .get_count = remote_list_get_count,
           .get_row = remote_list_get_row,
           .select = select_row,
-          .select_long = select_long_row,
           .draw_row = draw_row,
           .cell_height = CELL_HEIGHT,
           .unload = unload,
       },
       &s_list);
   list_window_push(s_list.window);
-  remote_list_load(&s_list, CommActionListTasks, NULL);
+  remote_list_load(&s_list, CommActionListTasks, s_memo_name);
 }

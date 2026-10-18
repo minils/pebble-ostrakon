@@ -595,33 +595,29 @@ function handleComment(req) {
   });
 }
 
-// Task ids are "<memo name>#<task index within the memo>"
+// Tasks of one memo, in document order. Task ids are
+// "<memo name>#<task index within the memo>".
 function handleListTasks(req) {
-  fetchMemos(function () { return true; }, PAGE_SIZE * MAX_PAGES,
-    function (err, memos, offline) {
-      if (err) {
-        replyError(req, err);
-        return;
-      }
-      var open = [];
-      var done = [];
-      memos.forEach(function (memo) {
-        findTasks(memo.content || "").forEach(function (task, index) {
-          // the memo title gives context, unless the task is the title
-          var title = memoTitle(memo);
-          var item = {
-            id: memo.name + "#" + index,
-            title: task.text,
-            subtitle: title === task.text
-              ? memoSubtitle(memo)
-              : truncateUtf8(title, MAX_SUBTITLE_BYTES),
-            flags: task.done ? 1 : 0
-          };
-          (task.done ? done : open).push(item);
-        });
-      });
-      replyList(req, open.concat(done).slice(0, MAX_TASK_ITEMS), offline);
-    });
+  apiRequest("GET", req.target, null, function (err, memo) {
+    var offline = false;
+    if (err && isOfflineError(err)) {
+      memo = findInCache(req.target);
+      offline = !!memo;
+    }
+    if (!memo) {
+      replyError(req, err || "Memo not found");
+      return;
+    }
+    var tasks = findTasks(memo.content || "").slice(0, MAX_TASK_ITEMS);
+    replyList(req, tasks.map(function (task, index) {
+      return {
+        id: memo.name + "#" + index,
+        title: task.text,
+        subtitle: "",
+        flags: task.done ? 1 : 0
+      };
+    }), offline);
+  });
 }
 
 function handleToggleTask(req) {

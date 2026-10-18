@@ -7,12 +7,10 @@
 #include "memo_list.h"
 #include "settings.h"
 #include "tag_list.h"
-#include "tasks_window.h"
 
 enum {
   MainRowNew,
   MainRowRecent,
-  MainRowTasks,
   MainRowTags,
   MainRowDrafts,
   MainRowCount,
@@ -38,10 +36,6 @@ static void get_row(uint16_t index, const char **title, const char **subtitle,
     *title = "Recent";
     *subtitle = "Latest memos";
     break;
-  case MainRowTasks:
-    *title = "Tasks";
-    *subtitle = "Checkboxes in memos";
-    break;
   case MainRowTags:
     *title = "Tags";
     *subtitle = "Memos by tag";
@@ -60,9 +54,6 @@ static void select_row(uint16_t index, void *context) {
     break;
   case MainRowRecent:
     memo_list_push(NULL);
-    break;
-  case MainRowTasks:
-    tasks_window_push();
     break;
   case MainRowTags:
     tag_list_push();

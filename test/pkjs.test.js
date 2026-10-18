@@ -153,12 +153,17 @@ setTimeout(() => { console.error('Test timed out'); process.exit(1); }, 30000).u
     'copen task', 'xdone task', 'bbullet', 'n1. first', 'qquoted', '-',
     'klet x = 1;', 'k- [ ] in code', 'p[pic]', 't#idea #pebble']);
 
-  // tasks: open ones first, ids are memo name and task index
-  r = await request(9);
-  assert.strictEqual(r[0].LIST_COUNT, 30);
-  const tasks = r.slice(1);
-  assert.ok(tasks.every(t => t.ITEM_FLAGS === 0));
-  assert.deepStrictEqual([tasks[0].ITEM_ID, tasks[0].ITEM_TITLE, tasks[0].ITEM_SUBTITLE], ['memos/m1#0', 'task 1', 'Oct 11, 12:01']);
+  // tasks of one memo in document order, ids are memo name and task index;
+  // checkboxes in code blocks are not tasks
+  r = await request(9, 'memos/md1');
+  assert.deepStrictEqual(r.slice(1).map(t => [t.ITEM_ID, t.ITEM_TITLE, t.ITEM_FLAGS]),
+    [['memos/md1#0', 'open task', 0], ['memos/md1#1', 'done task', 1]]);
+  r = await request(9, 'memos/m1');
+  assert.deepStrictEqual(r.slice(1).map(t => t.ITEM_TITLE), ['task 1']);
+  r = await request(9, 'memos/u1');
+  assert.strictEqual(r[0].LIST_COUNT, 0);
+  r = await request(9, 'memos/nope');
+  assert.deepStrictEqual([r[0].STATUS, r[0].TEXT], [1, 'Server error 404']);
 
   // toggling patches the memo content; code blocks are not tasks
   r = await request(10, 'memos/md1#0', 'open task');
@@ -216,6 +221,8 @@ setTimeout(() => { console.error('Test timed out'); process.exit(1); }, 30000).u
   assert.ok(r[0].TEXT.startsWith('1Big title'));
   r = await request(5, 'memos/new1'); // created memos are cached, too
   assert.ok(r[0].TEXT.startsWith('1shopping'));
+  r = await request(9, 'memos/md1');
+  assert.deepStrictEqual([r[0].TEXT, r[0].LIST_COUNT], ['Offline: cached memos', 2]);
   r = await request(5, 'memos/unknown');
   assert.deepStrictEqual([r[0].STATUS, r[0].TEXT], [1, 'Network error']);
   r = await request(6, 'memos/m3');

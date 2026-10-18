@@ -41,6 +41,14 @@ static void click_config_provider(void *context) {
   window_single_click_subscribe(BUTTON_ID_SELECT, select_click_handler);
 }
 
+static void load_content(void) {
+  show_message("Loading...");
+  s_loading = comm_request(CommActionGet, s_name, NULL, content_handler, NULL);
+  if (!s_loading) {
+    show_message("Phone not connected");
+  }
+}
+
 static void window_load(Window *window) {
   Layer *root = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
@@ -56,11 +64,7 @@ static void window_load(Window *window) {
   s_select_hint = ui_select_hint_create(bounds);
   layer_add_child(root, s_select_hint);
 
-  show_message("Loading...");
-  s_loading = comm_request(CommActionGet, s_name, NULL, content_handler, NULL);
-  if (!s_loading) {
-    show_message("Phone not connected");
-  }
+  load_content();
 }
 
 static void window_unload(Window *window) {
@@ -88,6 +92,12 @@ void memo_window_push(const char *memo_name) {
                                            .unload = window_unload,
                                        });
   window_stack_push(s_window, true);
+}
+
+void memo_window_reload(const char *memo_name) {
+  if (s_window && strcmp(s_name, memo_name) == 0) {
+    load_content();
+  }
 }
 
 void memo_window_close(const char *memo_name) {

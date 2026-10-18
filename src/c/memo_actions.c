@@ -4,11 +4,13 @@
 #include "compose_window.h"
 #include "memo_list.h"
 #include "memo_window.h"
+#include "tasks_window.h"
 #include "toast.h"
 #include "ui.h"
 
 enum {
   MemoActionOpen = 1,
+  MemoActionTasks,
   MemoActionArchive,
   MemoActionDelete,
   MemoActionComment,
@@ -47,6 +49,9 @@ static void action_chosen(int id, void *context) {
   case MemoActionOpen:
     memo_window_push(s_name);
     break;
+  case MemoActionTasks:
+    tasks_window_push(s_name);
+    break;
   case MemoActionArchive:
     s_pending_action = id;
     modify(CommActionArchive);
@@ -64,6 +69,7 @@ static void action_chosen(int id, void *context) {
 void memo_actions_open(const char *memo_name, bool include_open) {
   static const ActionItem items[] = {
       {.label = "Open", .id = MemoActionOpen},
+      {.label = "Tasks", .id = MemoActionTasks},
       {.label = "Archive", .id = MemoActionArchive},
       {.label = "Delete", .id = MemoActionDelete,
        .confirm_label = "Yes, delete"},

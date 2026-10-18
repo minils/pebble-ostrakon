@@ -1,6 +1,5 @@
 #pragma once
 #include <pebble.h>
 
-// Checkboxes of the recent memos. Select toggles a task, a long press
-// opens its memo.
-void tasks_window_push(void);
+// Checkboxes of one memo. Select toggles a task, synced to the server.
+void tasks_window_push(const char *memo_name);
