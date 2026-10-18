@@ -7,7 +7,7 @@
   "dependencies": {},
   "pebble": {
     "displayName": "Ostrakon",
-    "uuid": "64cf3c66-9218-4f8a-8861-f25f1cc0efaa",
+    "uuid": "6685e502-776e-4f88-b659-97fdff9973de",
     "sdkVersion": "3",
     "enableMultiJS": true,
     "targetPlatforms": [
@@ -45,12 +45,7 @@
       	"type": "bitmap",
       	"name": "IMAGE_ICON",
       	"file": "memosicon.png"
-      },
-        {
-      	"type": "bitmap",
-      	"name": "IMAGE_LOGO",
-      	"file": "memoslogo.png"
-        }]
+      }]
     }
   }
 }
