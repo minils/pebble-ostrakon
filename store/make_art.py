@@ -1,6 +1,6 @@
 # Draws the app store graphics: icon-144.png, icon-48.png, banner-720x320.png
 # Usage: python3 store/make_art.py store   (needs Pillow, DejaVu and Inter fonts)
-import sys
+import sys, random
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 OUT = sys.argv[1]
@@ -41,15 +41,42 @@ def shard_image(size):
     light = Image.new('RGBA', (big, big), CLAY_LIGHT + (0,))
     light.putalpha(Image.composite(glaze, Image.new('L', (big, big), 0), mask))
     img.alpha_composite(light)
-    # Greek capitals scratched into the clay, as on real ostraka:
-    # "ostrakon", "mneme" (memory) and "grapho" (I write), slightly tilted
+    # scratched writing: made-up glyphs of short strokes, hooks and arcs
+    # that look hand-written but belong to no real script
     text = Image.new('RGBA', (big, big), (0, 0, 0, 0))
     td = ImageDraw.Draw(text)
-    font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf', int(k * 2.7))
-    for (line, x, y) in [('ΟΣΤΡΑΚΟΝ', 4.3, 6.4), ('ΜΝΗΜΗ', 6.3, 10.6),
-                         ('ΓΡΑΦΩ', 8.0, 14.8)]:
-        td.text((x * k, y * k), line, font=font, fill=INK)
-    text = text.rotate(-5, resample=Image.BICUBIC, center=(big / 2, big / 2))
+    rnd = random.Random(11)
+    stroke = max(2, int(k * 0.42))
+    glyph_w, glyph_h = 1.55 * k, 2.3 * k
+
+    def glyph(x, y):
+        for _ in range(rnd.randint(2, 3)):
+            kind = rnd.random()
+            if kind < 0.35:    # slanted stroke
+                x0 = x + rnd.uniform(0, glyph_w * 0.6)
+                td.line([(x0, y + glyph_h), (x0 + rnd.uniform(-0.4, 0.6) * glyph_w, y)],
+                        fill=INK, width=stroke)
+            elif kind < 0.6:   # hook: down and a short tail
+                x0 = x + rnd.uniform(0, glyph_w * 0.5)
+                mid = y + rnd.uniform(0.5, 1.0) * glyph_h
+                td.line([(x0, y), (x0, mid), (x0 + glyph_w * 0.5, mid - rnd.uniform(0, 0.4) * glyph_h)],
+                        fill=INK, width=stroke, joint='curve')
+            elif kind < 0.85:  # small arc
+                box = [x, y + rnd.uniform(0, 0.4) * glyph_h, x + glyph_w, y + glyph_h]
+                start_angle = rnd.choice([0, 90, 180, 270])
+                td.arc(box, start_angle, start_angle + rnd.randint(120, 220), fill=INK, width=stroke)
+            else:              # short crossbar
+                yy = y + rnd.uniform(0.2, 0.8) * glyph_h
+                td.line([(x, yy), (x + glyph_w, yy + rnd.uniform(-0.2, 0.2) * glyph_h)],
+                        fill=INK, width=stroke)
+
+    # lines of "words", shorter where the shard narrows
+    for line_y, words in [(5.6, [(4.2, 4), (12.6, 4)]), (10.0, [(5.0, 3), (11.4, 4)]),
+                          (14.4, [(7.4, 4)])]:
+        for x, glyphs in words:
+            for i in range(glyphs):
+                glyph((x + i * 1.85) * k, line_y * k)
+    text = text.rotate(-4, resample=Image.BICUBIC, center=(big / 2, big / 2))
     # keep the writing inside the shard
     text.putalpha(Image.composite(text.getchannel('A'), Image.new('L', (big, big), 0), mask))
     img.alpha_composite(text)
