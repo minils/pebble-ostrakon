@@ -5,9 +5,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -18,8 +23,10 @@ jobs:
           uv tool install pebble-tool --python 3.13
           yes | pebble sdk install latest
 
+      # stdin from /dev/null so an unexpected prompt fails instead of hanging
       - name: Build
-        run: pebble build
+        timeout-minutes: 10
+        run: pebble build < /dev/null
 
       - uses: actions/upload-artifact@v4
         with:
