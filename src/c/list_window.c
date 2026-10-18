@@ -42,11 +42,7 @@ static void draw_row(GContext *ctx, const Layer *cell_layer,
 static int16_t get_cell_height(MenuLayer *menu_layer, MenuIndex *cell_index,
                                void *data) {
   ListWindow *list = data;
-  if (list->callbacks.cell_height > 0 &&
-      list->callbacks.get_count(list->context) > 0) {
-    return list->callbacks.cell_height;
-  }
-  return 44; // the MenuLayer default
+  return list->callbacks.cell_height;
 }
 
 static void select_long_click(MenuLayer *menu_layer, MenuIndex *cell_index,
@@ -79,7 +75,11 @@ static void window_load(Window *window) {
                            (MenuLayerCallbacks){
                                .get_num_rows = get_num_rows,
                                .draw_row = draw_row,
-                               .get_cell_height = get_cell_height,
+                               // without a custom height the system default
+                               // fits the platform best
+                               .get_cell_height = list->callbacks.cell_height > 0
+                                                      ? get_cell_height
+                                                      : NULL,
                                .select_click = select_click,
                                .select_long_click = select_long_click,
                            });
